@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}{{ course.name }} — CSU Check-In{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-header-row">
+        <div>
+            <h1>{{ course.name }}</h1>
+            {% if course.course_code %}<span class="badge">{{ course.course_code }}</span>{% endif %}
+        </div>
+        <div class="page-actions">
+            <a href="/instructor/course/{{ course.id }}/analytics" class="btn btn-outline">📊 Analytics</a>
+            <a href="/instructor/course/{{ course.id }}/export" class="btn btn-outline">📥 Export CSV</a>
+            <a href="/instructor/course/{{ course.id }}/settings" class="btn btn-outline">⚙️ Settings</a>
+        </div>
+    </div>
+</div>
+
+{# ── D2L Integration Card ── #}
+<div class="card">
+    <h2>🔗 D2L Integration</h2>
+
+    {% if import_result and import_result.error is defined %}
+    <div class="alert alert-danger" style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;color:#991b1b;">
+        ❌ {{ import_result.error }}
+    </div>
+    {% elif import_result %}
+    <div class="alert alert-success" style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;color:#166534;">
+        ✅ Import complete: <strong>{{ import_result.new }}</strong> new students,
+        <strong>{{ import_result.updated }}</strong> updated,
+        <strong>{{ import_result.enrolled }}</strong> newly enrolled.
+    </div>
+    {% endif %}
+
+    <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-end;">
+        <form method="post" action="/instructor/course/{{ course.id }}/import-roster"
+              enctype="multipart/form-data" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="roster_file" style="font-size:0.85rem;font-weight:600;">Import D2L Roster (CSV)</label>
+                <input type="file" id="roster_file" name="roster_file" accept=".csv" required
+                       style="font-size:0.9rem;">
+            </div>
+            <button type="submit" class="btn btn-primary">📤 Import Roster</button>
+        </form>
+        <a href="/instructor/course/{{ course.id }}/export-d2l" class="btn btn-outline">📥 Export for D2L Gradebook</a>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Enrolled Students ({{ student_stats|length }})</h2>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Student ID</th>
+                <th>D2L</th>
+                <th>Sessions Attended</th>
+                <th>Attendance %</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in student_stats %}
+            <tr class="{% if s.pct < 75 %}row-warning{% endif %}">
+                <td>{{ s.student.name }}</td>
+                <td>{{ s.student.student_id_number }}</td>
+                <td>
+                    {% if s.student.d2l_verified %}
+                    <span title="Verified in D2L roster" style="color:#16a34a;">✅</span>
+                    {% else %}
+                    <span title="Not in D2L roster — verify enrollment" style="color:#f59e0b;">⚠️</span>
+                    {% endif %}
+                </td>
+                <td>{{ s.attended }} / {{ s.total }}</td>
+                <td>
+                    <div class="mini-progress">
+                        <div class="mini-progress-fill {% if s.pct >= 90 %}bg-success{% elif s.pct >= 75 %}bg-warning{% else %}bg-danger{% endif %}"
+                             style="width: {{ s.pct }}%"></div>
+                    </div>
+                    <span>{{ s.pct }}%</span>
+                </td>
+                <td>
+                    {% if s.pct < 75 %}
+                    <span class="badge badge-danger">At Risk</span>
+                    {% elif s.pct < 90 %}
+                    <span class="badge badge-warning">Watch</span>
+                    {% else %}
+                    <span class="badge badge-success">Good</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h2>Session History ({{ sessions|length }})</h2>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Started</th>
+                <th>Ended</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in sessions %}
+            <tr>
+                <td>{{ s.started_at.strftime('%Y-%m-%d') if s.started_at else '—' }}</td>
+                <td>{{ s.started_at.strftime('%H:%M') if s.started_at else '—' }}</td>
+                <td>{{ s.ended_at.strftime('%H:%M') if s.ended_at else '—' }}</td>
+                <td>
+                    {% if s.ended_at is none %}
+                    <span class="badge badge-success">Active</span>
+                    {% else %}
+                    <span class="badge badge-muted">Completed</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

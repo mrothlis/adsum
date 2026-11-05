@@ -1,0 +1,23 @@
+# secrets & local state — never commit
+.env
+CREDENTIALS.txt
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+backups/
+server.log
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# editor/OS
+.vscode/
+.idea/
+Thumbs.db
+
+# stale artifacts
+*.bak
+*.broken-*

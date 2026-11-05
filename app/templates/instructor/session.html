@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Live Session — {{ course.name }} — CSU Check-In{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Live Session</h1>
+    <p class="subtitle">{{ course.name }} {% if course.course_code %}({{ course.course_code }}){% endif %}</p>
+</div>
+
+<div class="session-layout">
+    <!-- QR Code Panel -->
+    <div class="card qr-panel">
+        <h2>📱 Scan to Check In</h2>
+        <div id="qr-container">
+            <img id="qr-image" src="" alt="QR Code" class="qr-code">
+        </div>
+        <p class="text-muted text-center">QR code rotates every {{ qr_rotation_seconds }} seconds</p>
+        <div class="session-controls">
+            <form method="post" action="/instructor/session/{{ session.id }}/stop"
+                  onsubmit="return confirm('End this attendance session?')">
+                <button type="submit" class="btn btn-danger">End Session</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Attendance Panel -->
+    <div class="card attendance-panel">
+        <div class="attendance-header">
+            <h2>✅ Attendance</h2>
+            <div class="attendance-counter">
+                <span id="att-count">{{ records|length }}</span> / <span id="att-total">{{ enrolled_count }}</span>
+            </div>
+        </div>
+
+        <div class="progress-bar">
+            {% set pct = (records|length / enrolled_count * 100) if enrolled_count > 0 else 0 %}
+            <div class="progress-fill" id="progress-fill" style="width: {{ pct|int }}%"></div>
+        </div>
+
+        <table class="table" id="attendance-table">
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>ID</th>
+                    <th>Time</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="attendance-body">
+                {% for r in records %}
+                <tr>
+                    <td>{{ r.student.name if r.student else 'Unknown' }}{% if r.student and not r.student.d2l_verified %} <span title="Not in D2L roster" style="color:#f59e0b;">⚠️</span>{% endif %}</td>
+                    <td>{{ r.student.student_id_number if r.student else '' }}</td>
+                    <td>{{ r.checked_in_at.strftime('%H:%M:%S') if r.checked_in_at else '' }}</td>
+                    <td>
+                        <span class="badge {% if r.status == 'present' %}badge-success{% elif r.status == 'late' %}badge-warning{% else %}badge-danger{% endif %}">
+                            {{ r.status|capitalize }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if missing_students %}
+        <form method="post" action="/instructor/session/{{ session.id }}/mark-present"
+              style="display:flex;gap:0.5rem;margin-top:1rem;">
+            <select name="student_id" style="flex:1;padding:0.5rem;border:1px solid #ccc;border-radius:6px;">
+                {% for s in missing_students %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-outline" title="For a student whose phone or location fails">Mark Present</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SESSION_ID = {{ session.id }};
+const ROTATION_MS = {{ qr_rotation_seconds }} * 1000;
+
+// Fetch and update QR code
+async function refreshQR() {
+    try {
+        const resp = await fetch(`/api/qr/${SESSION_ID}`);
+        if (!resp.ok) {
+            document.getElementById('qr-container').innerHTML = '<p class="text-muted">Session ended.</p>';
+            return;
+        }
+        const data = await resp.json();
+        document.getElementById('qr-image').src = data.qr;
+    } catch (e) {
+        console.error('QR refresh error:', e);
+    }
+}
+
+// SSE for live attendance updates
+function connectSSE() {
+    const evtSource = new EventSource(`/api/attendance/${SESSION_ID}/stream`);
+
+    evtSource.addEventListener('attendance_update', (e) => {
+        const data = JSON.parse(e.data);
+        document.getElementById('att-count').textContent = data.count;
+        document.getElementById('att-total').textContent = data.enrolled;
+
+        const pct = data.enrolled > 0 ? Math.round(data.count / data.enrolled * 100) : 0;
+        document.getElementById('progress-fill').style.width = pct + '%';
+
+        const tbody = document.getElementById('attendance-body');
+        tbody.innerHTML = data.records.map(r => `
+            <tr>
+                <td>${r.student_name}${!r.d2l_verified ? ' <span title="Not in D2L roster" style="color:#f59e0b;">⚠️</span>' : ''}</td>
+                <td>${r.student_id}</td>
+                <td>${r.checked_in_at}</td>
+                <td><span class="badge ${r.status === 'present' ? 'badge-success' : r.status === 'late' ? 'badge-warning' : 'badge-danger'}">${r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span></td>
+            </tr>
+        `).join('');
+    });
+
+    evtSource.addEventListener('session_ended', () => {
+        evtSource.close();
+        document.getElementById('qr-container').innerHTML = '<p>Session has ended.</p>';
+    });
+
+    evtSource.onerror = () => {
+        evtSource.close();
+        setTimeout(connectSSE, 5000);
+    };
+}
+
+// Initialize
+refreshQR();
+setInterval(refreshQR, ROTATION_MS);
+connectSSE();
+</script>
+{% endblock %}

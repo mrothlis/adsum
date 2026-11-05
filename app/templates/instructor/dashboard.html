@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — CSU Check-In{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Instructor Dashboard</h1>
+    <p class="subtitle">Welcome back, {{ user.name }}</p>
+</div>
+
+{% if alerts %}
+<div class="card alert-card">
+    <h2>⚠️ Early Alerts</h2>
+    <div class="alert-list">
+        {% for a in alerts %}
+        <div class="alert-item {% if a.consecutive_absences >= 3 %}alert-critical{% else %}alert-warning{% endif %}">
+            <div class="alert-info">
+                <strong>{{ a.student.name }}</strong>
+                <span class="badge badge-muted">{{ a.course.course_code or a.course.name }}</span>
+            </div>
+            <div class="alert-stats">
+                <span class="stat">{{ a.pct }}% attendance ({{ a.attended }}/{{ a.total }})</span>
+                {% if a.consecutive_absences >= 3 %}
+                <span class="badge badge-danger">{{ a.consecutive_absences }} consecutive absences</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<h2>My Courses</h2>
+<div class="course-grid">
+    {% for course in courses %}
+    <div class="card course-card">
+        <h3>{{ course.name }}</h3>
+        {% if course.course_code %}
+        <span class="badge">{{ course.course_code }}</span>
+        {% endif %}
+
+        {% if course.id in active_sessions %}
+        <div class="session-active">
+            <span class="pulse"></span>
+            <span>Live Session — {{ active_sessions[course.id].count }} checked in</span>
+        </div>
+        <a href="/instructor/session/{{ active_sessions[course.id].session.id }}" class="btn btn-success btn-block">
+            View Live Session
+        </a>
+        {% else %}
+        <form method="post" action="/instructor/course/{{ course.id }}/start-session">
+            <button type="submit" class="btn btn-primary btn-block">Start Session</button>
+        </form>
+        {% endif %}
+
+        <div class="course-actions">
+            <a href="/instructor/course/{{ course.id }}">Roster & Records</a>
+            <a href="/instructor/course/{{ course.id }}/analytics">Analytics</a>
+            <a href="/instructor/course/{{ course.id }}/export">Export CSV</a>
+            <a href="/instructor/course/{{ course.id }}/settings">Settings</a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

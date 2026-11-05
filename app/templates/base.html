@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}CSU Check-In{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="/">🎓 CSU Check-In</a>
+        </div>
+        <div class="nav-links">
+            {% if user %}
+                <span class="nav-user">{{ user.name }}</span>
+                {% if user.role == 'instructor' %}
+                    <a href="/instructor/dashboard">Dashboard</a>
+                    <a href="/instructor/logout">Logout</a>
+                {% endif %}
+            {% endif %}
+        </div>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <p>CSU Check-In &copy; {{ now().year if now is defined else "2026" }} Columbus State University</p>
+    </footer>
+
+    <script src="/static/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

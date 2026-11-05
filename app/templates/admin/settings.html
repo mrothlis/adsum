@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Settings — {{ course.name }} — CSU Check-In{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<div class="page-header">
+    <div class="page-header-row">
+        <div>
+            <h1>⚙️ Course Settings</h1>
+            <p class="subtitle">{{ course.name }}</p>
+        </div>
+        <div class="page-actions">
+            <a href="/instructor/course/{{ course.id }}" class="btn btn-outline">← Back</a>
+        </div>
+    </div>
+</div>
+
+<form method="post" action="/instructor/course/{{ course.id }}/settings">
+    <div class="card">
+        <h2>Geofence Settings</h2>
+        <p class="text-muted">Click the map (or drag the pin) to set the classroom location. Stand in the room and use "My Location" for best accuracy.</p>
+        <div id="fence-map" style="height:350px;border-radius:8px;margin-bottom:1rem;z-index:0;"></div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="geofence_lat">Latitude</label>
+                <input type="number" step="any" id="geofence_lat" name="geofence_lat"
+                       value="{{ course.geofence_lat or '' }}" placeholder="32.4600">
+            </div>
+            <div class="form-group">
+                <label for="geofence_lon">Longitude</label>
+                <input type="number" step="any" id="geofence_lon" name="geofence_lon"
+                       value="{{ course.geofence_lon or '' }}" placeholder="-84.9877">
+            </div>
+            <div class="form-group">
+                <label for="geofence_radius_m">Radius (meters)</label>
+                <input type="number" step="1" id="geofence_radius_m" name="geofence_radius_m"
+                       value="{{ course.geofence_radius_m }}" placeholder="75">
+            </div>
+        </div>
+        <button type="button" id="use-my-location" class="btn btn-outline">📍 Use My Current Location</button>
+        <div class="form-group" style="margin-top:1rem;">
+            <label style="display:flex;align-items:center;gap:0.5rem;">
+                <input type="checkbox" name="geofence_enabled" value="true"
+                       {% if course.geofence_enabled %}checked{% endif %} style="width:auto;">
+                <span><strong>Enforce geofence</strong> — ask each student's phone for location at check-in and block anyone outside the circle. Leave off to check in without location.</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Network / IP Settings</h2>
+        <p class="text-muted">Optional: restrict or flag check-ins from outside campus networks. Comma-separated CIDRs.</p>
+        <div class="form-group">
+            <label for="allowed_ip_ranges">Allowed IP Ranges</label>
+            <input type="text" id="allowed_ip_ranges" name="allowed_ip_ranges"
+                   value="{{ course.allowed_ip_ranges or '' }}"
+                   placeholder="e.g. 10.0.0.0/8, 172.16.0.0/12">
+        </div>
+    </div>
+
+    {% if institution %}
+    <div class="card">
+        <h2>D2L Brightspace / LTI 1.1</h2>
+        <p class="text-muted">
+            Connect to D2L so students can launch directly from their course.
+            <strong>No IT involvement needed</strong> — you set this up yourself in D2L.
+        </p>
+        <div class="form-group">
+            <label for="d2l_host">D2L Host</label>
+            <input type="text" id="d2l_host" name="d2l_host"
+                   value="{{ institution.d2l_host or '' }}" placeholder="yourschool.brightspace.com">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="lti_consumer_key">LTI Consumer Key</label>
+                <input type="text" id="lti_consumer_key" name="lti_consumer_key"
+                       value="{{ institution.lti_consumer_key or '' }}" placeholder="csu-checkin">
+            </div>
+            <div class="form-group">
+                <label for="lti_consumer_secret">LTI Consumer Secret</label>
+                <input type="text" id="lti_consumer_secret" name="lti_consumer_secret"
+                       value="{{ institution.lti_consumer_secret or '' }}" placeholder="(auto-generated if blank)">
+            </div>
+        </div>
+
+        <div class="card" style="background: var(--bg-muted, #f5f5f5); margin-top: 1rem;">
+            <h3>📋 D2L Setup Instructions</h3>
+            <ol style="line-height: 1.8;">
+                <li>In D2L, go to your course → <b>Content</b> → <b>Add Existing Activities</b> → <b>External Learning Tool</b></li>
+                <li>Title: <code>Attendance Check-In</code></li>
+                <li>URL: <code>{{ base_url }}/lti/launch</code></li>
+                <li>Key: <code>{{ institution.lti_consumer_key or 'csu-checkin' }}</code></li>
+                <li>Secret: <code>{{ institution.lti_consumer_secret or '(save settings first to generate)' }}</code></li>
+                <li>Check <b>"Open as External Resource"</b></li>
+                <li>Under Security Settings, check: <b>Send system username</b>, <b>Send user email</b>, <b>Send user name</b></li>
+            </ol>
+        </div>
+    </div>
+    {% endif %}
+
+    <button type="submit" class="btn btn-primary">Save Settings</button>
+</form>
+
+<div class="card" style="border:1px solid #dc3545;margin-top:1.5rem;">
+    <h2>⚠️ Reset Session Data</h2>
+    <p class="text-muted">Deletes <strong>all sessions and attendance records</strong> for this course. The roster, students, and settings are kept. Use at the start of a semester or to clear test data.</p>
+    <form method="post" action="/instructor/course/{{ course.id }}/reset-data"
+          onsubmit="return confirm('Delete ALL sessions and attendance for this course? This cannot be undone.');">
+        <button type="submit" class="btn btn-danger">Reset Sessions &amp; Attendance</button>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(() => {
+    const latIn = document.getElementById('geofence_lat');
+    const lonIn = document.getElementById('geofence_lon');
+    const radIn = document.getElementById('geofence_radius_m');
+    const lat0 = parseFloat(latIn.value) || 32.4600;
+    const lon0 = parseFloat(lonIn.value) || -84.9877;
+    const rad0 = parseFloat(radIn.value) || 75;
+
+    const map = L.map('fence-map').setView([lat0, lon0], 17);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const marker = L.marker([lat0, lon0], { draggable: true }).addTo(map);
+    const circle = L.circle([lat0, lon0], { radius: rad0, color: '#0d6efd', fillOpacity: 0.12 }).addTo(map);
+
+    function setPos(lat, lng) {
+        marker.setLatLng([lat, lng]);
+        circle.setLatLng([lat, lng]);
+        latIn.value = lat.toFixed(6);
+        lonIn.value = lng.toFixed(6);
+    }
+    marker.on('dragend', () => { const p = marker.getLatLng(); setPos(p.lat, p.lng); });
+    map.on('click', (e) => setPos(e.latlng.lat, e.latlng.lng));
+    radIn.addEventListener('input', () => { circle.setRadius(parseFloat(radIn.value) || 0); });
+
+    document.getElementById('use-my-location').addEventListener('click', () => {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => { setPos(pos.coords.latitude, pos.coords.longitude); map.setView([pos.coords.latitude, pos.coords.longitude], 17); },
+            () => alert("Couldn't get your location. Check browser location permissions.")
+        );
+    });
+})();
+</script>
+{% endblock %}
