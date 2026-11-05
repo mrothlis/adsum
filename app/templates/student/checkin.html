@@ -43,6 +43,9 @@
             <p class="text-muted">Welcome, <strong>{{ identified_student.name }}</strong></p>
             {% if token %}
             <p class="text-muted small">One tap to check in.</p>
+            {% if geofence_required %}
+            <p class="text-muted small">📍 Your location is checked once against the classroom area and logged with your attendance.</p>
+            {% endif %}
         </div>
         <form method="post" action="/student/checkin" id="checkin-form" data-geofence="{{ '1' if geofence_required else '0' }}">
             <input type="hidden" name="token" value="{{ token }}">

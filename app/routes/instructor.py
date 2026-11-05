@@ -39,6 +39,21 @@ def require_instructor(request: Request) -> dict:
 
 # ─── Login / Logout ────────────────────────────────────────
 
+# Simple brute-force throttle: 5 failed attempts per IP -> 10-minute lockout.
+import time as _time
+
+LOGIN_MAX_FAILS = 5
+LOGIN_LOCKOUT_SECONDS = 600
+_login_fails: dict = {}  # ip -> [fail_count, lockout_until_epoch]
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
 @router.post("/login")
 async def login(
     request: Request,
@@ -46,10 +61,20 @@ async def login(
     password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
+    ip = _client_ip(request)
+    now = _time.time()
+    state = _login_fails.get(ip)
+    if state and state[1] > now:
+        return HTMLResponse(
+            "<h2>Too many login attempts</h2><p>Please try again in 10 minutes.</p>",
+            status_code=429,
+        )
+
     stmt = select(Instructor).where(Instructor.email == email)
     result = await db.execute(stmt)
     instructor = result.scalar_one_or_none()
     if instructor and verify_password(password, instructor.password_hash):
+        _login_fails.pop(ip, None)
         resp = RedirectResponse("/instructor/dashboard", status_code=302)
         set_session_cookie(resp, {
             "role": "instructor",
@@ -57,9 +82,15 @@ async def login(
             "name": instructor.name,
         })
         return resp
+
+    state = _login_fails.get(ip) or [0, 0.0]
+    state[0] += 1
+    if state[0] >= LOGIN_MAX_FAILS:
+        state = [0, now + LOGIN_LOCKOUT_SECONDS]
+    _login_fails[ip] = state
     return templates.TemplateResponse(request, "login.html", {
         "error": "Invalid email or password.",
-    })
+    }, status_code=401)
 
 
 @router.get("/logout")

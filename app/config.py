@@ -18,6 +18,8 @@ class Settings:
     SECRET_KEY: str = "change-me-to-a-random-string-at-least-32-chars"
     DATABASE_URL: str = "sqlite+aiosqlite:///./csu_checkin_v2.db"
     ADMIN_PASSWORD: str = "admin123"
+    ADMIN_EMAIL: str = "admin@example.edu"
+    SEED_DEMO: bool = False
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     DEBUG: bool = True

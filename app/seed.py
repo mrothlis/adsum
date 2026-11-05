@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from sqlalchemy import select, func
 
 from app.database import async_session
@@ -26,7 +27,7 @@ async def seed_demo_data() -> None:
             name="Columbus State University",
             d2l_host="colstate.view.usg.edu",
             lti_consumer_key="csu-checkin",
-            lti_consumer_secret="demo-secret-change-in-production",
+            lti_consumer_secret=secrets.token_urlsafe(32),
         )
         db.add(inst)
         await db.flush()
@@ -79,3 +80,31 @@ async def seed_demo_data() -> None:
 
         await db.commit()
         log.info("Demo data seeded: 1 institution, 1 course, 1 instructor, 10 students")
+
+
+async def ensure_admin() -> None:
+    """Production bootstrap: on an empty DB create the institution and one
+    admin instructor from ADMIN_EMAIL/ADMIN_PASSWORD. No demo courses/students."""
+    async with async_session() as db:
+        count = (await db.execute(select(func.count(Instructor.id)))).scalar() or 0
+        if count > 0:
+            return
+        if not settings.ADMIN_PASSWORD or settings.ADMIN_PASSWORD == "admin123":
+            log.error("Empty database but ADMIN_PASSWORD is unset/default; "
+                      "refusing to create an admin with a known password. Set ADMIN_PASSWORD in .env.")
+            return
+        inst = Institution(
+            name="Columbus State University",
+            d2l_host="colstate.view.usg.edu",
+            lti_consumer_key="csu-checkin",
+            lti_consumer_secret=secrets.token_urlsafe(32),
+        )
+        db.add(inst)
+        await db.flush()
+        db.add(Instructor(
+            name="Administrator",
+            email=settings.ADMIN_EMAIL,
+            password_hash=hash_password(settings.ADMIN_PASSWORD),
+        ))
+        await db.commit()
+        log.info("Created admin instructor %s", settings.ADMIN_EMAIL)

@@ -25,9 +25,17 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 @app.on_event("startup")
 async def startup() -> None:
     await init_db()
-    # Seed demo data if DB is empty
-    from app.seed import seed_demo_data
-    await seed_demo_data()
+    from app.seed import ensure_admin, seed_demo_data
+    if settings.SEED_DEMO:
+        await seed_demo_data()   # demo institution/course/students (dev only)
+    else:
+        await ensure_admin()     # production: create admin from .env on an empty DB
+
+
+@app.get("/healthz")
+async def healthz() -> dict:
+    """Uptime probe for monitoring."""
+    return {"status": "ok"}
 
 
 # ---- Register route modules ----
