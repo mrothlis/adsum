@@ -15,8 +15,12 @@ import os
 import re
 import sqlite3
 import sys
+import time as _time
 
 import requests
+
+# Ensure project root (parent of scripts/) is on sys.path so we can import app.*
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 BASE = os.getenv("BASE_URL", "https://checkin.drrothlisberger.com")
 RUN_RESET = "--reset" in sys.argv
@@ -37,7 +41,9 @@ def check(name, ok, detail=""):
     print(("PASS " if ok else "FAIL ") + name + (f"  | {detail}" if detail else ""))
 
 def get_db():
-    return sqlite3.connect(DB)
+    db = sqlite3.connect(DB, timeout=10.0)
+    db.execute("PRAGMA busy_timeout = 10000")
+    return db
 
 def main():
     s = requests.Session()
@@ -59,16 +65,18 @@ def main():
                       allow_redirects=False)
     check("old password (admin123) rejected", r.status_code == 401)
 
-    # 4. login throttle (fake IP)
+    # 4. login throttle (fake IP) — fixed IPs to avoid collision
+    throttle_ip = "203.0.113.50"
+    other_ip = "203.0.113.51"
     codes = [requests.post(BASE + "/instructor/login",
                            data={"email": "rothlisberger_michael@columbusstate.edu", "password": "wrong" + str(i)},
-                           headers={"X-Forwarded-For": "203.0.113.42"},
+                           headers={"X-Forwarded-For": throttle_ip},
                            allow_redirects=False).status_code for i in range(6)]
     check("throttle 5×401 → 429", codes[:5] == [401]*5 and codes[5] == 429)
     # Other IP unaffected
     r = requests.post(BASE + "/instructor/login",
                       data={"email": "rothlisberger_michael@columbusstate.edu", "password": "wrong"},
-                      headers={"X-Forwarded-For": "203.0.113.99"}, allow_redirects=False)
+                      headers={"X-Forwarded-For": other_ip}, allow_redirects=False)
     check("other IP unaffected", r.status_code == 401)
 
     # 5. sandbox course (course 2) — create fresh session
@@ -114,12 +122,25 @@ def main():
     r = s.get(BASE + "/instructor/course/2/export-d2l", cookies=icook)
     check("export-d2l CSV downloads", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
 
-    # 13. Stop and clean up test sessions
+    # 13. Stop test sessions (leave records in DB; test data is harmless)
     for x in (sid, sid1):
         s.post(BASE + f"/instructor/session/{x}/stop", cookies=icook, allow_redirects=False)
-        get_db().execute("DELETE FROM attendance_records WHERE session_id=?", (x,))
-        get_db().execute("DELETE FROM sessions WHERE id=?", (x,))
-    get_db().commit()
+    # Optional: full cleanup of test records (requires --cleanup flag)
+    if "--cleanup" in sys.argv:
+        def db_exec_with_retry(db, sql, params, retries=3, delay=0.5):
+            for attempt in range(retries):
+                try:
+                    db.execute(sql, params)
+                    return
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e).lower() and attempt < retries - 1:
+                        _time.sleep(delay)
+                    else:
+                        raise
+        for x in (sid, sid1):
+            db_exec_with_retry(get_db(), "DELETE FROM attendance_records WHERE session_id=?", (x,))
+            db_exec_with_retry(get_db(), "DELETE FROM sessions WHERE id=?", (x,))
+        get_db().commit()
 
     # 14. Optional: reset-data (only if --reset flag)
     if RUN_RESET:
