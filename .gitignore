@@ -21,3 +21,4 @@ Thumbs.db
 # stale artifacts
 *.bak
 *.broken-*
+new_lti_secret.tmp
