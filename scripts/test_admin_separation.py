@@ -56,7 +56,23 @@ def _db_path():
     return path
 
 
-COURSE_ID = int(os.getenv("TEST_COURSE_ID", "2"))
+
+def _default_course_id():
+    """The course with the most enrolled students, unless TEST_COURSE_ID says
+    otherwise. Installs differ, so nothing may assume a particular id."""
+    env = os.getenv("TEST_COURSE_ID")
+    if env:
+        return int(env)
+    import sqlite3 as _s
+    row = _s.connect(_db_path(), timeout=10).execute(
+        "SELECT course_id FROM course_enrollments WHERE student_id IS NOT NULL "
+        "GROUP BY course_id ORDER BY COUNT(*) DESC LIMIT 1").fetchone()
+    if not row:
+        raise SystemExit("No course has enrolled students; set TEST_COURSE_ID.")
+    return row[0]
+
+
+COURSE_ID = _default_course_id()
 
 admin = {"checkin_session": requests.post(
     BASE + "/instructor/login", data={"email": EMAIL, "password": PW},

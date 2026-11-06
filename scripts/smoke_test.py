@@ -123,7 +123,7 @@ def main():
                       headers={"X-Forwarded-For": other_ip}, allow_redirects=False)
     check("other IP unaffected", r.status_code == 401)
 
-    # 5. sandbox course (course 2) — create fresh session
+    # 5. target course — create a fresh session
     global COURSE_ID
     _db = get_db()
     if not COURSE_ID:
@@ -144,21 +144,32 @@ def main():
 
     tok = s.get(f"{BASE}/api/qr/{sid}", cookies=icook).json()["token"]
 
-    # 6. anon page has Launch-from-D2L deep link (since geofence_enabled=false by default)
+    # 6. The anonymous check-in page must load. It offers a Launch-from-D2L
+    #    deep link only when the course has one configured, so that part is
+    #    checked conditionally rather than assumed.
     r = requests.get(BASE + "/student/checkin", params={"token": tok})
-    check("anon page has Launch-from-D2L", r.status_code == 200 and "Launch from D2L" in r.text)
+    check("anon check-in page loads", r.status_code == 200)
+    _db2 = get_db()
+    _deep = _db2.execute("SELECT d2l_attendance_checkin_url FROM courses WHERE id=?",
+                         (COURSE_ID,)).fetchone()
+    _db2.close()
+    if _deep and _deep[0]:
+        check("anon page has Launch-from-D2L", "Launch from D2L" in r.text)
+    else:
+        print("SKIP  anon page has Launch-from-D2L — no deep link configured on this course")
 
-    # 7. forged student LTI cookie for whoever is actually enrolled in course 2.
+    # 7. forged student LTI cookie for whoever is actually enrolled.
     # Don't hardcode an id -- rosters change, and a removed student made this fail spuriously.
     from app.auth import create_session_token
     _db = get_db()
     _row = _db.execute(
         "SELECT s.id, s.name FROM course_enrollments ce "
         "JOIN students s ON s.id = ce.student_id "
-        "WHERE ce.course_id = 2 AND ce.role = 'student' ORDER BY s.id LIMIT 1").fetchone()
+        "WHERE ce.course_id = ? AND ce.role = 'student' ORDER BY s.id LIMIT 1",
+        (COURSE_ID,)).fetchone()
     _db.close()
     if not _row:
-        raise SystemExit("smoke test needs at least one student enrolled in course 2")
+        raise SystemExit(f"smoke test needs at least one student enrolled in course {COURSE_ID}")
     test_student_id, test_student_name = _row
     print(f"   (using enrolled student {test_student_id}: {test_student_name})")
     scook = {"checkin_session": create_session_token({"role": "student", "student_id": test_student_id,
@@ -174,7 +185,7 @@ def main():
     if _geo and _geo[0] and _geo[1] is not None:
         checkin_data["gps_lat"] = str(_geo[1])
         checkin_data["gps_lon"] = str(_geo[2])
-        print("   (course 2 enforces a geofence; sending in-fence coords)")
+        print("   (course enforces a geofence; sending in-fence coords)")
 
     tok = s.get(f"{BASE}/api/qr/{sid}", cookies=icook).json()["token"]
     checkin_data["token"] = tok
@@ -233,7 +244,7 @@ def main():
         check("reset wiped course 1 sessions", left == 0)
 
     # 15. Verify geofence enforcement when enabled (quick test)
-    # Enable on course 2, try out-of-range GPS -> blocked, then disable again
+    # Enable on the target course, try out-of-range GPS -> blocked, then disable
     # (skipped in normal run; only if GEOFENCE_TEST=1)
     if os.getenv("GEOFENCE_TEST") == "1":
         print(">> GEOFENCE_TEST enabled — running geofence enforcement checks")

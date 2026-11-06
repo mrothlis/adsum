@@ -141,10 +141,20 @@ Run against a running instance. They read `BASE_URL`, `ADMIN_EMAIL` and
 `ADMIN_PASSWORD` from the environment or `.env`.
 
 ```bash
+python scripts/verify_install.py         # clean-install check; needs no running server
 python scripts/smoke_test.py             # end-to-end happy path, 12 checks
 python scripts/test_isolation.py         # one instructor cannot reach another's data
 python scripts/test_admin_separation.py  # ordinary instructors cannot change shared config
 ```
+
+`verify_install.py` exports the committed tree to a scratch directory and
+starts it from `.env.example` alone, so it proves a fresh clone works and
+fails if a secret or a database is ever committed. The other three run
+against a live instance and pick their target course automatically; override
+it with `TEST_COURSE_ID`.
+
+All four run on every push via GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)),
+across Python 3.11, 3.12 and 3.13.
 
 The latter two create and clean up their own throwaway records. All three
 expect a course with at least one enrolled student; override the target with

@@ -31,10 +31,15 @@ python run.py
 Run all three scripts against a local instance:
 
 ```bash
+python scripts/verify_install.py         # no server needed
 python scripts/smoke_test.py
 python scripts/test_isolation.py
 python scripts/test_admin_separation.py
+ruff check app scripts run.py backup_db.py
 ```
+
+CI runs all of these on every push, so a failure there is reproducible
+locally with the same commands.
 
 If you touch routing, authorization, or anything that reads `course_id` or
 `session_id` from a URL, the isolation and admin tests are the ones that
