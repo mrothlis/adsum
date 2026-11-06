@@ -27,7 +27,7 @@ from app.models import (
 from app.main import templates, _to_local
 from app.scoring import score, PRESENT_STATUSES, EXCUSED_STATUS
 from app import ledger
-from app.authz import owned_course, owned_session
+from app.authz import owned_course, owned_session, is_admin
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
@@ -585,6 +585,7 @@ async def course_settings(request: Request, course_id: int, db: AsyncSession = D
         "user": user,
         "course": course,
         "institution": institution,
+        "is_admin": await is_admin(db, user),
         "base_url": settings.BASE_URL.rstrip("/"),
     })
 
@@ -629,8 +630,11 @@ async def save_course_settings(
     course.geofence_enabled = geofence_enabled
     course.allowed_ip_ranges = allowed_ip_ranges or None
 
-    # Institution-level LTI settings
-    if course.institution_id:
+    # Institution-level LTI settings are shared by every course and every
+    # instructor, so only an admin may change them. Without this, one
+    # professor saving their own course settings would silently rewrite the
+    # LTI secret and break everyone else's D2L launches.
+    if course.institution_id and await is_admin(db, user):
         institution = await db.get(Institution, course.institution_id)
         if institution:
             institution.d2l_host = d2l_host or None

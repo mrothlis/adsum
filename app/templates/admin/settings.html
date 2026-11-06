@@ -93,9 +93,28 @@
     {% if institution %}
     <div class="card">
         <h2>D2L Brightspace / LTI 1.1</h2>
+        {% if not is_admin %}
+        <p class="text-muted">
+            These settings are shared by every course on this installation, so only an
+            administrator can change them. Ask whoever runs this server if the D2L
+            connection needs adjusting — your own course settings above are yours to edit.
+        </p>
+        <div class="card" style="background: var(--bg-muted, #f5f5f5);">
+            <h3>📋 Adding the link in your D2L course</h3>
+            <ol style="line-height: 1.8;">
+                <li>In D2L: your course → <b>Content</b> → <b>Add Existing Activities</b> → <b>External Learning Tool</b></li>
+                <li>Title: <code>Attendance Check-In</code></li>
+                <li>URL: <code>{{ base_url }}/lti/launch</code></li>
+                <li>Key and Secret: ask your administrator</li>
+                <li>Check <b>"Open as External Resource"</b></li>
+                <li>Under Security Settings, check: <b>Send system username</b>, <b>Send user email</b>, <b>Send user name</b></li>
+            </ol>
+        </div>
+        {% else %}
         <p class="text-muted">
             Connect to D2L so students can launch directly from their course.
-            <strong>No IT involvement needed</strong> — you set this up yourself in D2L.
+            <strong>Shared by every course on this installation</strong> — changing it
+            affects every instructor, which is why it is admin-only.
         </p>
         <div class="form-group">
             <label for="d2l_host">D2L Host</label>
@@ -127,6 +146,7 @@
                 <li>Under Security Settings, check: <b>Send system username</b>, <b>Send user email</b>, <b>Send user name</b></li>
             </ol>
         </div>
+        {% endif %}
     </div>
     {% endif %}
 

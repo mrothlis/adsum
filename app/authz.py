@@ -10,7 +10,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Course, CourseEnrollment, Session
+from app.models import Course, CourseEnrollment, Instructor, Session
 
 
 async def owned_course(db: AsyncSession, user: dict | None, course_id: int):
@@ -46,3 +46,16 @@ async def owned_session(db: AsyncSession, user: dict | None, session_id: int):
     if not course:
         return None, None
     return session, course
+
+
+async def is_admin(db: AsyncSession, user: dict | None) -> bool:
+    """Is this instructor an installation admin?
+
+    Admins own the shared plumbing: the D2L host and the LTI key/secret that
+    every course on the install depends on. Ordinary instructors manage their
+    own courses only.
+    """
+    if not user or user.get("role") != "instructor":
+        return False
+    instructor = await db.get(Instructor, user.get("instructor_id"))
+    return bool(instructor and instructor.is_admin)

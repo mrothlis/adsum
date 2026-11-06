@@ -48,6 +48,7 @@ async def seed_demo_data() -> None:
             name="Dr. Michael Rothlisberger",
             email="rothlisberger_michael@columbusstate.edu",
             password_hash=hash_password(settings.ADMIN_PASSWORD),
+            is_admin=True,
         )
         db.add(instructor)
         await db.flush()
@@ -105,6 +106,7 @@ async def ensure_admin() -> None:
             name="Administrator",
             email=settings.ADMIN_EMAIL,
             password_hash=hash_password(settings.ADMIN_PASSWORD),
+            is_admin=True,   # bootstrap account owns the shared D2L/LTI settings
         ))
         await db.commit()
         log.info("Created admin instructor %s", settings.ADMIN_EMAIL)

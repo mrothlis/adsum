@@ -57,6 +57,10 @@ class Instructor(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     email: Mapped[str] = mapped_column(String(300), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(500), nullable=False)
+    # Institution-wide settings (D2L host, LTI key/secret) are admin-only.
+    # A normal instructor manages their own courses and nothing else, so one
+    # professor cannot break every other professor's D2L launches.
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
 
     enrollments: Mapped[List["CourseEnrollment"]] = relationship(
         back_populates="instructor",
