@@ -11,7 +11,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
-from app.config import settings
 from app.database import get_db
 from app.geo import check_geofence, check_ip_range
 from app.main import templates
@@ -207,7 +206,7 @@ async def do_checkin(
     status = "present"
     if session.started_at:
         elapsed = (dt.datetime.utcnow() - session.started_at).total_seconds() / 60
-        if elapsed > policy_for(course, settings).late_threshold_minutes:
+        if elapsed > policy_for(course).late_threshold_minutes:
             status = "late"
 
     # 9. Record attendance

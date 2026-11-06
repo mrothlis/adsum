@@ -42,11 +42,6 @@ class Settings:
     DEFAULT_GEOFENCE_LAT: float = 0.0
     DEFAULT_GEOFENCE_LON: float = 0.0
     DEFAULT_GEOFENCE_RADIUS_M: float = 75.0
-    # Minutes after a session starts before a check-in is recorded as late.
-    # There is deliberately no hard cut-off: the instructor decides when a
-    # session ends, and a student arriving late is handled in person.
-    LATE_THRESHOLD_MINUTES: int = 10
-
     # Timestamps are stored as naive UTC; this is the zone they're DISPLAYED in.
     DISPLAY_TIMEZONE: str = os.getenv("DISPLAY_TIMEZONE", "America/New_York")
     # Fallback offset used only if the IANA tz database is missing.
@@ -58,8 +53,10 @@ class Settings:
     D2L_HOST: str = os.getenv("D2L_HOST", "")
     LTI_CONSUMER_KEY: str = os.getenv("LTI_CONSUMER_KEY", "adsum")
 
-    # Free unexcused absences before attendance percentage is affected.
-    ALLOWED_UNEXCUSED_ABSENCES: int = int(os.getenv("ALLOWED_UNEXCUSED_ABSENCES", "3"))
+    # NOTE: attendance policy (forgiven absences, late threshold, whether
+    # late counts as present) is deliberately NOT here. It is a syllabus
+    # decision set per course by the instructor, not something the person who
+    # installs the server should dictate. See app/scoring.py.
 
     BASE_URL: str = "http://localhost:8000"
 

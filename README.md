@@ -223,14 +223,21 @@ Tick *Create new grade item* on the **first** import only.
 
 ## Attendance policy
 
-Set per course under **Course → Settings → Attendance Policy**. Leave a field
-blank to inherit the institution default from `.env`.
+**Each instructor sets their own, per course**, under **Course → Settings →
+Attendance Policy**. None of it is an install setting: how many absences a
+student is allowed is a syllabus decision, and the person who deploys the
+server has no business making it for a department. Two instructors sharing
+one installation can run entirely different policies.
 
-| Setting | Meaning |
-|---|---|
-| **Unexcused absences forgiven** | How many a student may have before the percentage drops. Default 3. |
-| **Marked late after** | Minutes from session start before a check-in records as late. Default 10. |
-| **Late counts as present** | On by default. Off means late arrivals are labelled late *and* count as absent for grading. |
+| Setting | Meaning | Default for a new course |
+|---|---|---|
+| **Unexcused absences forgiven** | How many a student may have before the percentage drops | 3 |
+| **Marked late after** | Minutes from session start before a check-in records as late | 10 |
+| **Late counts as present** | Off means late arrivals are labelled late *and* count as absent for grading | On |
+
+Leave a box empty to use the default. Changing a policy re-scores that
+course's existing attendance immediately — the percentage is always computed
+from the records, never stored.
 
 Excused absences are always removed from the denominator — a documented
 absence neither helps nor hurts. A course with no sessions yet scores 100, so
@@ -270,8 +277,6 @@ that matter:
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | **Required.** Bootstrap admin, created on an empty database. |
 | `BASE_URL` | Public URL embedded in every QR code. Must be the external HTTPS address. |
 | `INSTITUTION_NAME`, `D2L_HOST`, `LTI_CONSUMER_KEY` | Institution identity. |
-| `ALLOWED_UNEXCUSED_ABSENCES` | Institution default; each course may override it. |
-| `LATE_THRESHOLD_MINUTES` | Institution default; each course may override it. |
 | `QR_ROTATION_SECONDS` | Rotation interval (20). A token lives 20–40s. |
 | `DISPLAY_TIMEZONE` | Display zone. Timestamps are stored as UTC. |
 | `DEFAULT_GEOFENCE_LAT/LON/RADIUS_M` | Starting position of the map picker. |
@@ -280,6 +285,11 @@ that matter:
 | `DEBUG` | Leave `false` outside local development. |
 
 Never commit `.env`.
+
+**Attendance policy is not in here.** Forgiven absences, the late threshold
+and whether late counts as present are set per course by each instructor —
+see [Attendance policy](#attendance-policy). Whoever installs the server does
+not decide how many absences a colleague's students are allowed.
 
 ## Roles and multi-instructor use
 

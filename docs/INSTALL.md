@@ -91,13 +91,20 @@ LTI_CONSUMER_KEY=adsum
 consortium, so check the address you actually log in to — it is not always
 `<school>.brightspace.com`.
 
-### Attendance policy
+### Attendance policy — not your job
+
+Forgiven absences, the late threshold and whether a late arrival counts as
+present are set **per course by each instructor**, in the web interface under
+Course → Settings → Attendance Policy. There is no server-wide setting for
+them, deliberately: an administrator should not be deciding a colleague's
+syllabus. New courses start at 3 forgiven absences, late after 10 minutes,
+late counting as present.
+
+### Display
 
 ```ini
-ALLOWED_UNEXCUSED_ABSENCES=3     # free absences before the grade drops
 DISPLAY_TIMEZONE=America/New_York
 QR_ROTATION_SECONDS=20
-LATE_THRESHOLD_MINUTES=10
 ```
 
 Timestamps are stored in UTC and displayed in `DISPLAY_TIMEZONE`. On Windows

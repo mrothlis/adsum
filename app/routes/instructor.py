@@ -35,7 +35,13 @@ from app.models import (
     Session,
     Student,
 )
-from app.scoring import EXCUSED_STATUS, policy_for, score
+from app.scoring import (
+    DEFAULT_ALLOWED_UNEXCUSED,
+    DEFAULT_LATE_THRESHOLD_MINUTES,
+    EXCUSED_STATUS,
+    policy_for,
+    score,
+)
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
@@ -161,7 +167,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
 
 async def _compute_alerts(db: AsyncSession, course: Course) -> list:
     """Return alert dicts for students with poor attendance."""
-    _policy = policy_for(course, settings)
+    _policy = policy_for(course)
     alerts = []
     # Total sessions for this course
     total_stmt = select(func.count(Session.id)).where(Session.course_id == course.id)
@@ -232,7 +238,7 @@ async def course_detail(
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Course not found", status_code=404)
-    _policy = policy_for(course, settings)
+    _policy = policy_for(course)
 
     # Sessions
     sess_stmt = select(Session).where(Session.course_id == course_id).order_by(Session.started_at.desc())
@@ -517,7 +523,7 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
-    _policy = policy_for(course, settings)
+    _policy = policy_for(course)
 
     sessions = (await db.execute(
         select(Session).where(Session.course_id == course_id).order_by(Session.started_at)
@@ -589,7 +595,7 @@ async def course_settings(request: Request, course_id: int, db: AsyncSession = D
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
-    _policy = policy_for(course, settings)
+    _policy = policy_for(course)
     institution = await db.get(Institution, course.institution_id) if course.institution_id else None
     return templates.TemplateResponse(request, "admin/settings.html", {
         "user": user,
@@ -599,8 +605,8 @@ async def course_settings(request: Request, course_id: int, db: AsyncSession = D
         "base_url": settings.BASE_URL.rstrip("/"),
         # Shown as placeholders so an instructor can see what "leave blank"
         # will actually give them.
-        "default_allowed_absences": settings.ALLOWED_UNEXCUSED_ABSENCES,
-        "default_late_threshold": settings.LATE_THRESHOLD_MINUTES,
+        "default_allowed_absences": DEFAULT_ALLOWED_UNEXCUSED,
+        "default_late_threshold": DEFAULT_LATE_THRESHOLD_MINUTES,
     })
 
 
@@ -639,7 +645,7 @@ async def save_course_settings(
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
-    _policy = policy_for(course, settings)
+    _policy = policy_for(course)
 
     # Course details. A field absent from the POST is left alone; a field
     # present but empty is an explicit clear. Name is required either way, so
@@ -714,7 +720,7 @@ async def reset_course_data(request: Request, course_id: int, db: AsyncSession =
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
-    _policy = policy_for(course, settings)
+    _policy = policy_for(course)
     session_ids = select(Session.id).where(Session.course_id == course_id)
     await db.execute(delete(AttendanceRecord).where(AttendanceRecord.session_id.in_(session_ids)))
     await db.execute(delete(Session).where(Session.course_id == course_id))
@@ -737,7 +743,7 @@ async def remove_student_from_roster(request: Request, course_id: int, student_i
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
-    _policy = policy_for(course, settings)
+    _policy = policy_for(course)
     session_ids = select(Session.id).where(Session.course_id == course_id)
     await db.execute(delete(AttendanceRecord).where(and_(
         AttendanceRecord.student_id == student_id,
@@ -828,7 +834,7 @@ async def restore_from_d2l(request: Request, course_id: int,
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
-    _policy = policy_for(course, settings)
+    _policy = policy_for(course)
 
     raw = (await grades_file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.reader(io.StringIO(raw))
@@ -1101,7 +1107,7 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
-    _policy = policy_for(course, settings)
+    _policy = policy_for(course)
 
     sessions = (await db.execute(
         select(Session).where(Session.course_id == course_id).order_by(Session.started_at)

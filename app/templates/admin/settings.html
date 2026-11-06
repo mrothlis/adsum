@@ -55,16 +55,16 @@
              request and an override could never be removed. -->
         <input type="hidden" name="policy_section" value="1">
         <h2>Attendance Policy</h2>
-        <p class="text-muted">These are syllabus decisions, so they belong to this
-        course. Leave a box empty to use the institution default shown in its
-        placeholder.</p>
+        <p class="text-muted">Your policy, your course. These are not set by
+        whoever installed Adsum &mdash; each instructor controls their own.
+        Leave a box empty to use the default shown in it.</p>
         <div class="form-row">
             <div class="form-group">
                 <label for="allowed_unexcused_absences">Unexcused absences forgiven</label>
                 <input type="number" min="0" step="1"
                        id="allowed_unexcused_absences" name="allowed_unexcused_absences"
                        value="{{ course.allowed_unexcused_absences if course.allowed_unexcused_absences is not none else '' }}"
-                       placeholder="{{ default_allowed_absences }} (institution default)">
+                       placeholder="{{ default_allowed_absences }} (default)">
                 <small class="text-muted">
                     How many unexcused absences a student may have before the
                     attendance percentage drops. Excused absences are always
@@ -76,7 +76,7 @@
                 <input type="number" min="0" step="1"
                        id="late_threshold_minutes" name="late_threshold_minutes"
                        value="{{ course.late_threshold_minutes if course.late_threshold_minutes is not none else '' }}"
-                       placeholder="{{ default_late_threshold }} (institution default)">
+                       placeholder="{{ default_late_threshold }} (default)">
                 <small class="text-muted">
                     Minutes after the session starts before a check-in is recorded
                     as late. There is no cut-off; the session accepts check-ins

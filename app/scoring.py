@@ -20,14 +20,24 @@ from dataclasses import dataclass
 PRESENT_STATUSES = ("present", "late")
 EXCUSED_STATUS = "excused"
 
+# Starting point for a brand-new course, nothing more. Attendance policy is a
+# syllabus decision belonging to the instructor, so it is NOT an install
+# setting: whoever deploys the server has no business fixing how many
+# absences a colleague's students are allowed. Each course overrides these in
+# Course -> Settings -> Attendance Policy.
+DEFAULT_ALLOWED_UNEXCUSED = 3
+DEFAULT_LATE_THRESHOLD_MINUTES = 10
+
 
 @dataclass(frozen=True)
 class Policy:
     """The attendance rules in force for one course.
 
-    Each field may be set on the course; where it is not, the institution
-    default from .env applies. Resolve it once per request with policy_for()
-    and pass it down, so one page can never disagree with another.
+    Every field belongs to the course. Where one is unset the built-in
+    default applies -- there is deliberately no server-wide override, so an
+    administrator cannot impose an attendance policy on a department.
+    Resolve it once per request with policy_for() and pass it down, so one
+    page can never disagree with another.
     """
 
     allowed_unexcused: int
@@ -40,13 +50,13 @@ class Policy:
         return PRESENT_STATUSES if self.late_counts_present else ("present",)
 
 
-def policy_for(course, settings) -> Policy:
-    """Course setting if present, otherwise the institution default."""
+def policy_for(course) -> Policy:
+    """This course's policy, falling back to the built-in defaults."""
     allowed = getattr(course, "allowed_unexcused_absences", None)
     late_after = getattr(course, "late_threshold_minutes", None)
     return Policy(
-        allowed_unexcused=settings.ALLOWED_UNEXCUSED_ABSENCES if allowed is None else allowed,
-        late_threshold_minutes=(settings.LATE_THRESHOLD_MINUTES
+        allowed_unexcused=DEFAULT_ALLOWED_UNEXCUSED if allowed is None else allowed,
+        late_threshold_minutes=(DEFAULT_LATE_THRESHOLD_MINUTES
                                 if late_after is None else late_after),
         late_counts_present=bool(getattr(course, "late_counts_present", True)),
     )
