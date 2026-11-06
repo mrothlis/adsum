@@ -13,20 +13,31 @@ except ImportError:
     pass
 
 
+PLACEHOLDER_SECRET = "change-me-to-a-random-string-at-least-32-chars"
+
+
 @dataclass
 class Settings:
-    SECRET_KEY: str = "change-me-to-a-random-string-at-least-32-chars"
+    # No usable default: the app refuses to start in production without a real
+    # one. It signs session cookies AND QR check-in tokens, so a shared or
+    # guessable value lets anyone forge both.
+    SECRET_KEY: str = PLACEHOLDER_SECRET
     DATABASE_URL: str = "sqlite+aiosqlite:///./csu_checkin_v2.db"
-    ADMIN_PASSWORD: str = "admin123"
+    # Deliberately empty. A default password would ship an open admin account
+    # to every install that forgot to set one.
+    ADMIN_PASSWORD: str = ""
     ADMIN_EMAIL: str = "admin@example.edu"
     SEED_DEMO: bool = False
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    DEBUG: bool = True
+    # Safe by default: DEBUG leaks tracebacks to users.
+    DEBUG: bool = False
     QR_ROTATION_SECONDS: int = 20
     QR_TOKEN_EXPIRY_SECONDS: int = 30
-    DEFAULT_GEOFENCE_LAT: float = 32.4600
-    DEFAULT_GEOFENCE_LON: float = -84.9877
+    # Only the starting position of the map picker, not a real classroom.
+    # Each course sets its own geofence in the UI.
+    DEFAULT_GEOFENCE_LAT: float = 0.0
+    DEFAULT_GEOFENCE_LON: float = 0.0
     DEFAULT_GEOFENCE_RADIUS_M: float = 75.0
     LATE_THRESHOLD_MINUTES: int = 10
     CHECKIN_WINDOW_MINUTES: int = 15
@@ -56,6 +67,33 @@ class Settings:
                     setattr(self, fld_name, env_val.lower() in ("true", "1", "yes"))
                 else:
                     setattr(self, fld_name, fld_type(env_val))
+        self._validate()
+
+    def _validate(self) -> None:
+        """Fail loudly at startup rather than quietly running insecurely.
+
+        These are the two settings that are dangerous to leave at their
+        defaults, and both are easy to miss because the app still appears to
+        work. Only enforced outside DEBUG so local experimentation is easy.
+        """
+        if self.DEBUG:
+            return
+        problems = []
+        if self.SECRET_KEY == PLACEHOLDER_SECRET or len(self.SECRET_KEY) < 32:
+            problems.append(
+                "SECRET_KEY is unset, still the placeholder, or shorter than 32 "
+                "characters. Generate one with:\n"
+                "    python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        if not self.ADMIN_PASSWORD:
+            problems.append("ADMIN_PASSWORD is empty; set it in .env.")
+        if problems:
+            raise RuntimeError(
+                "Refusing to start with an insecure configuration:\n  - "
+                + "\n  - ".join(problems)
+                + "\n\nSet these in .env (see .env.example), or set DEBUG=true "
+                  "for local development only."
+            )
 
 
 settings = Settings()
