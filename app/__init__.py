@@ -1,1 +1,1 @@
-# CSU Check-In app package
+# Attendance Check-In app package

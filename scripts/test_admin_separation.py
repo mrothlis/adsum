@@ -41,9 +41,9 @@ import requests  # noqa: E402
 
 COURSE_ID = int(os.getenv("TEST_COURSE_ID", "2"))
 
-admin = {"csu_session": requests.post(
+admin = {"checkin_session": requests.post(
     BASE + "/instructor/login", data={"email": EMAIL, "password": PW},
-    allow_redirects=False).cookies.get("csu_session")}
+    allow_redirects=False).cookies.get("checkin_session")}
 ck = admin
 
 fails = []
@@ -81,7 +81,7 @@ conn.execute("INSERT INTO course_enrollments (course_id,instructor_id,role) VALU
              (other_course, other_id))
 conn.commit()
 conn.close()
-other = {"csu_session": create_session_token(
+other = {"checkin_session": create_session_token(
     {"role": "instructor", "instructor_id": other_id, "name": "Prof Colleague"})}
 print(f"second professor id={other_id}, their course id={other_course}\n")
 

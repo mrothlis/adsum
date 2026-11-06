@@ -37,9 +37,9 @@ if not PW:
 
 import requests  # noqa: E402
 
-admin = {"csu_session": requests.post(
+admin = {"checkin_session": requests.post(
     BASE + "/instructor/login", data={"email": EMAIL, "password": PW},
-    allow_redirects=False).cookies.get("csu_session")}
+    allow_redirects=False).cookies.get("checkin_session")}
 ck = admin
 
 import sqlite3  # noqa: E402
@@ -58,7 +58,7 @@ ROSTER_NAMES = [n for _i, n in _roster]
 # A second instructor who teaches nothing on this install.
 from app.auth import create_session_token  # noqa: E402
 
-other = {"csu_session": create_session_token(
+other = {"checkin_session": create_session_token(
     {"role": "instructor", "instructor_id": 999999, "name": "Other Instructor"})}
 
 fails = []

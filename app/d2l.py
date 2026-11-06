@@ -6,7 +6,7 @@ to D2L for roster pull or grade passback. Instead:
 - Roster: Students self-enroll on first LTI launch (auto-created in our DB).
 - Grades: Instructors export CSV from the dashboard and import into D2L gradebook.
 
-If CSU IT later provides Valence API credentials (OAuth 2.0), these helpers
+If your IT department later provides Valence API credentials (OAuth 2.0), these helpers
 can push grades directly. For now they are stub-ready.
 """
 
@@ -27,7 +27,7 @@ async def push_grades_csv_to_d2l(
     """Push a grades CSV to D2L via the Valence API.
 
     Requires an OAuth 2.0 access token with grades:gradevalues:write scope.
-    This is a FUTURE capability - requires CSU IT to register an API app.
+    This is a FUTURE capability - requires your IT department to register an API app.
     For now, instructors manually import the CSV export into D2L.
     """
     log.info("Grade push to D2L not yet configured (requires Valence API credentials)")

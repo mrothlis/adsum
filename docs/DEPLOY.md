@@ -1,6 +1,9 @@
 # Deployment Runbook (for IT)
 
-This document describes how to deploy and operate CSU Check-In in a production environment. It assumes a Windows Server or VM. The app also runs in Docker for containerized deployments.
+This document describes how to deploy and operate Attendance Check-In in a production environment. It assumes a Windows Server or VM.
+
+For a platform-neutral install guide, see [INSTALL.md](INSTALL.md); this
+document covers the Windows specifics only.
 
 ---
 
@@ -106,29 +109,7 @@ Restart the `EI-tunnel` task after any config change.
 
 ---
 
-## 4. Docker deployment (preferred for new environments)
-
-```bash
-# On the target host
-git clone <repo>
-cd csu-checkin
-cp .env.example .env
-# edit .env with production values, including:
-# DATABASE_URL=sqlite+aiosqlite:///./data/csu_checkin_v2.db
-
-docker compose up -d --build
-docker compose exec checkin python -m alembic upgrade head
-```
-
-Volumes:
-- `./data` → `/app/data` (holds `csu_checkin_v2.db`)
-- `./backups` → `/app/backups` (holds nightly backups)
-
-The container runs `uvicorn` directly; `docker compose restart` handles crashes.
-
----
-
-## 5. D2L Brightspace integration (LTI 1.1)
+## 4. D2L Brightspace integration (LTI 1.1)
 
 **No central IT registration needed.** Any instructor self-configures:
 
@@ -144,24 +125,24 @@ Students launch from D2L → auto-authenticated → one-tap check-in.
 
 ---
 
-## 6. Gradebook workflow (no IT needed)
+## 5. Gradebook workflow (no IT needed)
 
 Instructor exports CSV from the course page (**Export for D2L Gradebook**).
 Import in D2L: **Grades → gear → Import Grades** → match `OrgDefinedId` → map `Attendance Points Grade`.
 
-This is a one-minute manual step. Fully automatic passback (LTI 1.3 AGS) requires CSU IT to register the tool for Advantage services.
+This is a one-minute manual step. Fully automatic passback (LTI 1.3 AGS) requires your IT department to register the tool for Advantage services.
 
 ---
 
-## 7. Monitoring & health
+## 6. Monitoring & health
 
-- **Health endpoint:** `GET /healthz` → `{"status":"ok"}` (used by Docker `HEALTHCHECK`)
+- **Health endpoint:** `GET /healthz` → `{"status":"ok"}` (point your uptime monitor here)
 - **Uptime:** The restart-loop scripts (`start.ps1`, cloudflared's loop) auto-recover from crashes.
 - **Logs:** `server.log` (uvicorn), `tunnel.log` (cloudflared), `backups/` (timestamped DB copies).
 
 ---
 
-## 8. Backup & restore
+## 7. Backup & restore
 
 - **Automatic:** `backup_db.py` runs daily at 21:00 via scheduled task. Uses SQLite online backup API (safe while live). Keeps 14 days in `backups/`.
 - **Manual restore:**
@@ -171,7 +152,7 @@ This is a one-minute manual step. Fully automatic passback (LTI 1.3 AGS) require
 
 ---
 
-## 9. Schema changes (Alembic)
+## 8. Schema changes (Alembic)
 
 ```bash
 # After model changes
@@ -185,7 +166,7 @@ The production DB is stamped at head (baseline revision `1958aa23331c`). Fresh i
 
 ---
 
-## 10. Credentials & secrets
+## 9. Credentials & secrets
 
 | Secret | Where stored | Rotation |
 |---|---|---|
@@ -196,7 +177,7 @@ The production DB is stamped at head (baseline revision `1958aa23331c`). Fresh i
 
 ---
 
-## 11. Privacy / FERPA
+## 10. Privacy / FERPA
 
 - Attendance = education record. Handle per FERPA.
 - Location: one-time geofence check; only `in_fence` + distance stored.
@@ -205,10 +186,10 @@ The production DB is stamped at head (baseline revision `1958aa23331c`). Fresh i
 
 ---
 
-## 12. Emergency contacts
+## 11. Emergency contacts
 
 | Role | Contact |
 |---|---|
 | App owner | set this to whoever maintains the install |
-| Cloudflare / Tunnel | CSU IT (Tailscale / Cloudflare admin) |
-| D2L Brightspace | CSU IT (Brightspace admin) |
+| Cloudflare / Tunnel | your IT department (Tailscale / Cloudflare admin) |
+| D2L Brightspace | your IT department (Brightspace admin) |

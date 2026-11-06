@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Settings — {{ course.name }} — CSU Check-In{% endblock %}
+{% block title %}Settings — {{ course.name }} — Attendance Check-In{% endblock %}
 
 {% block content %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -56,12 +56,12 @@
             <div class="form-group">
                 <label for="geofence_lat">Latitude</label>
                 <input type="number" step="any" id="geofence_lat" name="geofence_lat"
-                       value="{{ course.geofence_lat or '' }}" placeholder="32.4600">
+                       value="{{ course.geofence_lat or '' }}" placeholder="e.g. 41.8781">
             </div>
             <div class="form-group">
                 <label for="geofence_lon">Longitude</label>
                 <input type="number" step="any" id="geofence_lon" name="geofence_lon"
-                       value="{{ course.geofence_lon or '' }}" placeholder="-84.9877">
+                       value="{{ course.geofence_lon or '' }}" placeholder="e.g. -87.6298">
             </div>
             <div class="form-group">
                 <label for="geofence_radius_m">Radius (meters)</label>
@@ -170,11 +170,18 @@
     const latIn = document.getElementById('geofence_lat');
     const lonIn = document.getElementById('geofence_lon');
     const radIn = document.getElementById('geofence_radius_m');
-    const lat0 = parseFloat(latIn.value) || 32.4600;
-    const lon0 = parseFloat(lonIn.value) || -84.9877;
-    const rad0 = parseFloat(radIn.value) || 75;
+    // Falls back to the installation's configured default, then to a world
+    // view. No campus is hard-coded here.
+    const defLat = {{ DEFAULT_GEOFENCE_LAT }};
+    const defLon = {{ DEFAULT_GEOFENCE_LON }};
+    const lat0 = parseFloat(latIn.value) || defLat;
+    const lon0 = parseFloat(lonIn.value) || defLon;
+    const rad0 = parseFloat(radIn.value) || {{ DEFAULT_GEOFENCE_RADIUS_M }};
 
-    const map = L.map('fence-map').setView([lat0, lon0], 17);
+    // Zoom right out when nothing is configured, so the pin is not dropped on
+    // an arbitrary spot the instructor might not notice is wrong.
+    const configured = (lat0 !== 0 || lon0 !== 0);
+    const map = L.map('fence-map').setView([lat0, lon0], configured ? 17 : 2);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap contributors'

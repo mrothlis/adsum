@@ -13,7 +13,7 @@ machine you install it on except the requests you make to your own D2L.
 | Requirement | Notes |
 | --- | --- |
 | A machine to run it on | Any Linux, macOS or Windows host, or a container runtime. A 1 vCPU / 1 GB VM is ample for a department. |
-| Python 3.11 or newer | Only if running without Docker. |
+| Python 3.11 or newer | |
 | A public HTTPS address | Students scan a QR code with their phones; their browsers must reach the server. |
 | A D2L Brightspace course | You need permission to add an External Learning Tool link, which instructors normally have. |
 
@@ -32,31 +32,7 @@ for LTI 1.1, or any paid service.
 
 ## 2. Install
 
-### Option A — Docker (recommended)
-
-```bash
-git clone https://github.com/<owner>/attendance-checkin.git
-cd attendance-checkin
-
-cp .env.example .env
-# Edit .env — see section 3. At minimum set SECRET_KEY, ADMIN_EMAIL,
-# ADMIN_PASSWORD and BASE_URL.
-
-docker compose up -d --build
-docker compose logs -f        # Ctrl-C to stop following
-```
-
-The compose file mounts `./data` and `./backups` and pins `DATABASE_URL` to
-`./data/checkin.db`, so the database and backups live on the host and survive
-container rebuilds. You do not need to set `DATABASE_URL` yourself; the
-compose `environment:` block deliberately overrides whatever is in `.env`,
-because a database written anywhere else is destroyed on the next rebuild.
-
-> The Docker path is provided for convenience but has not been exercised as
-> thoroughly as the direct Python install. If you hit a problem with it,
-> please open an issue.
-
-### Option B — Python directly
+### Install
 
 ```bash
 git clone https://github.com/<owner>/attendance-checkin.git
@@ -266,11 +242,6 @@ reconcile.
 
 ## 8. Running it as a service
 
-### Docker
-
-`docker-compose.yml` already sets `restart: unless-stopped`. Nothing further
-is needed.
-
 ### systemd (Linux)
 
 `/etc/systemd/system/attendance-checkin.service`:
@@ -333,7 +304,7 @@ file would otherwise overwrite the record D2L is holding.
 
 ```bash
 git pull
-pip install -r requirements.txt     # or: docker compose up -d --build
+pip install -r requirements.txt
 alembic upgrade head                # apply any schema changes
 ```
 
@@ -344,7 +315,8 @@ nothing to do.
 
 ## 11. Verifying the install
 
-The direct Python install in section 2B is verified from a clean clone: fresh
+The install is verified from a clean clone on every push by CI, and can be
+reproduced locally with `python scripts/verify_install.py`: fresh
 virtualenv, `.env` copied from `.env.example`, empty database. The app refuses
 to start until `SECRET_KEY` and `ADMIN_PASSWORD` are set, then creates the
 admin account and starts with no demo data.
@@ -377,7 +349,7 @@ they are the ones that catch a privacy regression.
 | One failed login locks out everyone | The proxy is not forwarding `X-Forwarded-For`. |
 | "Nothing to export" | The course has no sessions. This is a deliberate guard — see section 9. |
 
-Logs: `docker compose logs`, `journalctl -u attendance-checkin`, or
+Logs: `journalctl -u attendance-checkin` or
 `server.log` depending on how you run it.
 
 ---

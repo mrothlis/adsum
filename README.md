@@ -171,11 +171,12 @@ complete backup — see *Restore from D2L* on the course page.
 ## Deployment
 
 See [docs/INSTALL.md](docs/INSTALL.md) for the full installation guide, and
-[docs/DEPLOY.md](docs/DEPLOY.md) for notes on the original Windows setup. A `Dockerfile` and `docker-compose.yml`
-are included; the compose file mounts `./data` and `./backups` so the database
-and backups persist outside the container. SQLite is the default and is fine
-at course or department scale; point `DATABASE_URL` at PostgreSQL for anything
-larger.
+[docs/DEPLOY.md](docs/DEPLOY.md) for notes on the original Windows setup.
+
+SQLite is the default and is fine at course or department scale; point
+`DATABASE_URL` at PostgreSQL for anything larger. There is no container image:
+the app is a plain `uvicorn` process, so run it under systemd, Task Scheduler,
+or whatever your institution already uses.
 
 ## Privacy
 

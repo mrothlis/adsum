@@ -62,7 +62,14 @@ def _to_local(value):
 
 templates.env.filters["localtime"] = _localtime
 
-app = FastAPI(title="CSU Check-In", version="0.1.0")
+# Installation-wide defaults templates may need. Exposed here so no template
+# hard-codes a location belonging to one particular campus.
+templates.env.globals["DEFAULT_GEOFENCE_LAT"] = settings.DEFAULT_GEOFENCE_LAT
+templates.env.globals["DEFAULT_GEOFENCE_LON"] = settings.DEFAULT_GEOFENCE_LON
+templates.env.globals["DEFAULT_GEOFENCE_RADIUS_M"] = settings.DEFAULT_GEOFENCE_RADIUS_M
+templates.env.globals["INSTITUTION_NAME"] = settings.INSTITUTION_NAME
+
+app = FastAPI(title="Attendance Check-In", version="0.1.0")
 
 # Mount static files
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")

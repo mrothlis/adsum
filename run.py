@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CSU Check-In — Entry point."""
+"""Attendance Check-In — Entry point."""
 
 from dotenv import load_dotenv
 load_dotenv()  # Must happen before any app imports
