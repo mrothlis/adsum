@@ -15,6 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.auth import get_current_user
 from app.config import settings
+from app.authz import owned_session
 from app.database import get_db, async_session
 from app.models import AttendanceRecord, Session, Student, CourseEnrollment
 from app.qr import generate_token, generate_qr_base64
@@ -32,8 +33,14 @@ def _local_hms(value) -> str:
 
 @router.get("/qr/{session_id}")
 async def get_qr(request: Request, session_id: int, db: AsyncSession = Depends(get_db)):
-    """Return the current QR code as a base64 data-URI plus the check-in URL."""
-    session = await db.get(Session, session_id)
+    """Return the current QR code as a base64 data-URI plus the check-in URL.
+
+    Instructor-only. This hands out a *valid check-in token*, so leaving it
+    open let anyone who guessed a session id check in from outside the room,
+    which defeats the point of a rotating in-class QR code.
+    """
+    user = get_current_user(request)
+    session, _course = await owned_session(db, user, session_id)
     if not session or session.ended_at is not None:
         return JSONResponse({"error": "Session not active"}, status_code=404)
 
@@ -53,8 +60,15 @@ async def get_qr(request: Request, session_id: int, db: AsyncSession = Depends(g
 
 
 @router.get("/attendance/{session_id}")
-async def attendance_list(session_id: int, db: AsyncSession = Depends(get_db)):
-    """Return current attendance records for a session."""
+async def attendance_list(request: Request, session_id: int, db: AsyncSession = Depends(get_db)):
+    """Return current attendance records for a session.
+
+    Instructor-only: this returns student names and ID numbers.
+    """
+    user = get_current_user(request)
+    session, _course = await owned_session(db, user, session_id)
+    if not session:
+        return JSONResponse({"error": "Not found"}, status_code=404)
     records_stmt = (
         select(AttendanceRecord)
         .options(selectinload(AttendanceRecord.student))
@@ -90,7 +104,15 @@ async def attendance_list(session_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.get("/attendance/{session_id}/stream")
 async def attendance_stream(request: Request, session_id: int):
-    """SSE stream of attendance updates for a live session."""
+    """SSE stream of attendance updates for a live session.
+
+    Instructor-only, for the same reason as attendance_list.
+    """
+    user = get_current_user(request)
+    async with async_session() as db:
+        session, _course = await owned_session(db, user, session_id)
+    if not session:
+        return JSONResponse({"error": "Not found"}, status_code=404)
 
     async def event_generator():
         last_count = -1

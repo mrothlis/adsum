@@ -27,6 +27,7 @@ from app.models import (
 from app.main import templates, _to_local
 from app.scoring import score, PRESENT_STATUSES, EXCUSED_STATUS
 from app import ledger
+from app.authz import owned_course, owned_session
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
@@ -222,7 +223,7 @@ async def course_detail(
     if not user:
         return RedirectResponse("/", status_code=302)
 
-    course = await db.get(Course, course_id)
+    course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Course not found", status_code=404)
 
@@ -285,6 +286,8 @@ async def start_session(request: Request, course_id: int, db: AsyncSession = Dep
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
+    if not await owned_course(db, user, course_id):
+        return RedirectResponse("/instructor/dashboard", status_code=302)
 
     # Check for existing active session
     existing = (await db.execute(
@@ -309,8 +312,10 @@ async def stop_session(request: Request, session_id: int, db: AsyncSession = Dep
     if not user:
         return RedirectResponse("/", status_code=302)
 
-    session = await db.get(Session, session_id)
-    if session and session.ended_at is None:
+    session, course = await owned_session(db, user, session_id)
+    if not session:
+        return RedirectResponse("/instructor/dashboard", status_code=302)
+    if session.ended_at is None:
         session.ended_at = dt.datetime.utcnow()
         await db.commit()
     return RedirectResponse(f"/instructor/course/{session.course_id}", status_code=302)
@@ -327,7 +332,7 @@ async def mark_present(
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
-    session = await db.get(Session, session_id)
+    session, course = await owned_session(db, user, session_id)
     if not session:
         return RedirectResponse(f"/instructor/session/{session_id}", status_code=302)
     # Deliberately allowed on an ENDED session: students routinely sort out a
@@ -358,7 +363,7 @@ async def unmark_attendance(request: Request, session_id: int,
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
-    session = await db.get(Session, session_id)
+    session, course = await owned_session(db, user, session_id)
     if not session:
         return HTMLResponse("Not found", status_code=404)
     await db.execute(delete(AttendanceRecord).where(and_(
@@ -382,7 +387,7 @@ async def mark_excused(request: Request, session_id: int,
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
-    session = await db.get(Session, session_id)
+    session, course = await owned_session(db, user, session_id)
     if not session:
         return HTMLResponse("Not found", status_code=404)
     existing = (await db.execute(select(AttendanceRecord).where(
@@ -405,11 +410,9 @@ async def session_view(request: Request, session_id: int, db: AsyncSession = Dep
     if not user:
         return RedirectResponse("/", status_code=302)
 
-    session = await db.get(Session, session_id)
+    session, course = await owned_session(db, user, session_id)
     if not session:
         return HTMLResponse("Session not found", status_code=404)
-
-    course = await db.get(Course, session.course_id)
 
     # Current attendance
     att_stmt = (
@@ -457,7 +460,7 @@ async def analytics(request: Request, course_id: int, db: AsyncSession = Depends
     if not user:
         return RedirectResponse("/", status_code=302)
 
-    course = await db.get(Course, course_id)
+    course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Course not found", status_code=404)
 
@@ -503,7 +506,7 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
     if not user:
         return RedirectResponse("/", status_code=302)
 
-    course = await db.get(Course, course_id)
+    course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
 
@@ -574,7 +577,7 @@ async def course_settings(request: Request, course_id: int, db: AsyncSession = D
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
-    course = await db.get(Course, course_id)
+    course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
     institution = await db.get(Institution, course.institution_id) if course.institution_id else None
@@ -608,7 +611,7 @@ async def save_course_settings(
     if not user:
         return RedirectResponse("/", status_code=302)
 
-    course = await db.get(Course, course_id)
+    course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
 
@@ -648,7 +651,7 @@ async def reset_course_data(request: Request, course_id: int, db: AsyncSession =
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
-    course = await db.get(Course, course_id)
+    course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
     session_ids = select(Session.id).where(Session.course_id == course_id)
@@ -670,7 +673,7 @@ async def remove_student_from_roster(request: Request, course_id: int, student_i
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
-    course = await db.get(Course, course_id)
+    course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
     session_ids = select(Session.id).where(Session.course_id == course_id)
@@ -699,6 +702,8 @@ async def edit_student(request: Request, course_id: int, student_id: int,
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
+    if not await owned_course(db, user, course_id):
+        return HTMLResponse("Not found", status_code=404)
     enr = (await db.execute(select(CourseEnrollment).where(and_(
         CourseEnrollment.course_id == course_id,
         CourseEnrollment.student_id == student_id)))).scalar_one_or_none()
@@ -758,7 +763,7 @@ async def restore_from_d2l(request: Request, course_id: int,
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
-    course = await db.get(Course, course_id)
+    course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
 
@@ -877,7 +882,7 @@ async def import_d2l_roster(
     if not user:
         return RedirectResponse("/", status_code=302)
 
-    course = await db.get(Course, course_id)
+    course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Course not found", status_code=404)
 
@@ -1030,7 +1035,7 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
     if not user:
         return RedirectResponse("/", status_code=302)
 
-    course = await db.get(Course, course_id)
+    course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
 

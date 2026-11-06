@@ -1,0 +1,48 @@
+"""Authorization helpers: does THIS instructor own THIS course?
+
+Kept separate from auth.py (which answers "who are you?") because these
+answer "what are you allowed to touch?". Both instructor pages and the JSON
+API need the same answer, and they must not disagree.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import Course, CourseEnrollment, Session
+
+
+async def owned_course(db: AsyncSession, user: dict | None, course_id: int):
+    """Return the course only if this instructor actually teaches it.
+
+    Authentication is not authorization: every course and session route takes
+    an id straight from the URL, so without this check any signed-in
+    instructor could read, export, edit or reset another instructor's course
+    simply by changing the number -- a student-privacy breach the moment a
+    second professor uses the system.
+    """
+    if not user or user.get("role") != "instructor":
+        return None
+    course = await db.get(Course, course_id)
+    if not course:
+        return None
+    enrolled = (await db.execute(select(CourseEnrollment.id).where(
+        CourseEnrollment.course_id == course_id,
+        CourseEnrollment.instructor_id == user.get("instructor_id"),
+        CourseEnrollment.role == "instructor",
+    ))).scalar_one_or_none()
+    return course if enrolled else None
+
+
+async def owned_session(db: AsyncSession, user: dict | None, session_id: int):
+    """Return (session, course) only if this instructor teaches that course."""
+    if not user:
+        return None, None
+    session = await db.get(Session, session_id)
+    if not session:
+        return None, None
+    course = await owned_course(db, user, session.course_id)
+    if not course:
+        return None, None
+    return session, course
