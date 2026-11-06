@@ -44,9 +44,25 @@ ck = admin
 
 import sqlite3  # noqa: E402
 
+
+def _db_path():
+    """Locate the SQLite file from DATABASE_URL, not a hard-coded name.
+
+    CI and local installs use different database filenames; reading the
+    configured URL keeps this script working on any install.
+    """
+    url = os.getenv("DATABASE_URL") or _from_env_file(
+        "DATABASE_URL", "sqlite+aiosqlite:///./csu_checkin_v2.db")
+    path = url.split("///")[-1] if "///" in url else url
+    if not os.path.isabs(path):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cand = os.path.join(root, path.lstrip("./"))
+        path = cand if os.path.exists(cand) else os.path.abspath(path.lstrip("./"))
+    return path
+
+
 COURSE_ID = int(os.getenv("TEST_COURSE_ID", "2"))
-_dbfile = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                       "csu_checkin_v2.db")
+_dbfile = _db_path()
 _roster = list(sqlite3.connect(_dbfile, timeout=10).execute(
     "SELECT s.id, s.name FROM course_enrollments ce JOIN students s ON s.id=ce.student_id "
     "WHERE ce.course_id=? AND ce.role='student' ORDER BY s.id", (COURSE_ID,)))
@@ -95,7 +111,7 @@ for path, data in [(f"/instructor/course/{COURSE_ID}/reset-data", {}),
 
 import sqlite3  # noqa: E402
 
-nm = sqlite3.connect("csu_checkin_v2.db", timeout=10).execute(
+nm = sqlite3.connect(_dbfile, timeout=10).execute(
     "SELECT name FROM students WHERE id=?", (TEST_STUDENT_ID,)).fetchone()[0]
 check("student record untouched by other instructor", nm != "HACKED", f"name={nm}")
 

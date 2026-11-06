@@ -35,6 +35,23 @@ def _from_env_file(key, default=""):
 
 
 BASE = os.getenv("BASE_URL") or _from_env_file("BASE_URL", "http://127.0.0.1:8000")
+
+def _db_path():
+    """Locate the SQLite file from DATABASE_URL, not a hard-coded name.
+
+    CI and local installs use different database filenames; reading the
+    configured URL keeps this script working on any install.
+    """
+    url = os.getenv("DATABASE_URL") or _from_env_file(
+        "DATABASE_URL", "sqlite+aiosqlite:///./csu_checkin_v2.db")
+    path = url.split("///")[-1] if "///" in url else url
+    if not os.path.isabs(path):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cand = os.path.join(root, path.lstrip("./"))
+        path = cand if os.path.exists(cand) else os.path.abspath(path.lstrip("./"))
+    return path
+
+
 RUN_RESET = "--reset" in sys.argv
 
 # Admin credentials: env var, then CREDENTIALS.txt (gitignored), then .env.
@@ -56,7 +73,7 @@ assert PW, "Set ADMIN_PASSWORD (env var or .env), or provide CREDENTIALS.txt"
 COURSE_ID = int(os.getenv("TEST_COURSE_ID", "0"))
 
 
-DB = "csu_checkin_v2.db"
+DB = _db_path()
 RESULTS = []
 
 def check(name, ok, detail=""):
