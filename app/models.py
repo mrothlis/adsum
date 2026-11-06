@@ -52,6 +52,14 @@ class Course(Base):
     geofence_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     allowed_ip_ranges: Mapped[Optional[str]] = mapped_column(Text)  # comma-separated CIDRs
 
+    # Attendance policy is a syllabus decision, so it belongs to the course,
+    # not the server. NULL means "use the institution default from .env",
+    # which keeps existing installs behaving exactly as before.
+    allowed_unexcused_absences: Mapped[Optional[int]] = mapped_column(Integer)
+    late_threshold_minutes: Mapped[Optional[int]] = mapped_column(Integer)
+    late_counts_present: Mapped[bool] = mapped_column(Boolean, default=True,
+                                                      server_default="1", nullable=False)
+
     institution: Mapped[Optional["Institution"]] = relationship(back_populates="courses")
     enrollments: Mapped[List["CourseEnrollment"]] = relationship(back_populates="course", cascade="all, delete-orphan")
     sessions: Mapped[List["Session"]] = relationship(back_populates="course", cascade="all, delete-orphan")

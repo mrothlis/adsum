@@ -24,6 +24,7 @@ from app.models import (
     Student,
 )
 from app.qr import verify_token
+from app.scoring import policy_for
 
 router = APIRouter(prefix="/student", tags=["student"])
 
@@ -202,11 +203,11 @@ async def do_checkin(
     if ip_ok is False:
         return _checkin_response(request, token, errors=["You must be on campus WiFi to check in."])
 
-    # 8. Late check
+    # 8. Late check, using this course's threshold rather than the server's
     status = "present"
     if session.started_at:
         elapsed = (dt.datetime.utcnow() - session.started_at).total_seconds() / 60
-        if elapsed > settings.LATE_THRESHOLD_MINUTES:
+        if elapsed > policy_for(course, settings).late_threshold_minutes:
             status = "late"
 
     # 9. Record attendance

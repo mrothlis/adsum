@@ -21,6 +21,37 @@ PRESENT_STATUSES = ("present", "late")
 EXCUSED_STATUS = "excused"
 
 
+@dataclass(frozen=True)
+class Policy:
+    """The attendance rules in force for one course.
+
+    Each field may be set on the course; where it is not, the institution
+    default from .env applies. Resolve it once per request with policy_for()
+    and pass it down, so one page can never disagree with another.
+    """
+
+    allowed_unexcused: int
+    late_threshold_minutes: int
+    late_counts_present: bool
+
+    @property
+    def present_statuses(self) -> tuple[str, ...]:
+        """Statuses that count towards attendance."""
+        return PRESENT_STATUSES if self.late_counts_present else ("present",)
+
+
+def policy_for(course, settings) -> Policy:
+    """Course setting if present, otherwise the institution default."""
+    allowed = getattr(course, "allowed_unexcused_absences", None)
+    late_after = getattr(course, "late_threshold_minutes", None)
+    return Policy(
+        allowed_unexcused=settings.ALLOWED_UNEXCUSED_ABSENCES if allowed is None else allowed,
+        late_threshold_minutes=(settings.LATE_THRESHOLD_MINUTES
+                                if late_after is None else late_after),
+        late_counts_present=bool(getattr(course, "late_counts_present", True)),
+    )
+
+
 @dataclass
 class Score:
     attended: int          # present or late

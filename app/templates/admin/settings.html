@@ -49,6 +49,56 @@
     </div>
 
     <div class="card">
+        <!-- Marks this block as submitted. FastAPI delivers an empty text field
+             as None, identical to a field that was never posted, so without
+             this flag "clear the override" and "don't touch it" are the same
+             request and an override could never be removed. -->
+        <input type="hidden" name="policy_section" value="1">
+        <h2>Attendance Policy</h2>
+        <p class="text-muted">These are syllabus decisions, so they belong to this
+        course. Leave a box empty to use the institution default shown in its
+        placeholder.</p>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="allowed_unexcused_absences">Unexcused absences forgiven</label>
+                <input type="number" min="0" step="1"
+                       id="allowed_unexcused_absences" name="allowed_unexcused_absences"
+                       value="{{ course.allowed_unexcused_absences if course.allowed_unexcused_absences is not none else '' }}"
+                       placeholder="{{ default_allowed_absences }} (institution default)">
+                <small class="text-muted">
+                    How many unexcused absences a student may have before the
+                    attendance percentage drops. Excused absences are always
+                    removed from the denominator and never count against anyone.
+                </small>
+            </div>
+            <div class="form-group">
+                <label for="late_threshold_minutes">Marked late after (minutes)</label>
+                <input type="number" min="0" step="1"
+                       id="late_threshold_minutes" name="late_threshold_minutes"
+                       value="{{ course.late_threshold_minutes if course.late_threshold_minutes is not none else '' }}"
+                       placeholder="{{ default_late_threshold }} (institution default)">
+                <small class="text-muted">
+                    Minutes after the session starts before a check-in is recorded
+                    as late. There is no cut-off; the session accepts check-ins
+                    until you end it.
+                </small>
+            </div>
+        </div>
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:0.5rem;">
+                <input type="checkbox" name="late_counts_present" value="true"
+                       {% if course.late_counts_present %}checked{% endif %}>
+                Count a late arrival as present
+            </label>
+            <small class="text-muted">
+                On, a late check-in counts fully towards attendance and is simply
+                labelled Late. Off, it counts as an absence for grading while the
+                arrival time is still recorded.
+            </small>
+        </div>
+    </div>
+
+    <div class="card">
         <h2>Geofence Settings</h2>
         <p class="text-muted">Click the map (or drag the pin) to set the classroom location. Stand in the room and use "My Location" for best accuracy.</p>
         <div id="fence-map" style="height:350px;border-radius:8px;margin-bottom:1rem;z-index:0;"></div>

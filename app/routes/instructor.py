@@ -35,7 +35,7 @@ from app.models import (
     Session,
     Student,
 )
-from app.scoring import EXCUSED_STATUS, PRESENT_STATUSES, score
+from app.scoring import EXCUSED_STATUS, policy_for, score
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
@@ -161,6 +161,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
 
 async def _compute_alerts(db: AsyncSession, course: Course) -> list:
     """Return alert dicts for students with poor attendance."""
+    _policy = policy_for(course, settings)
     alerts = []
     # Total sessions for this course
     total_stmt = select(func.count(Session.id)).where(Session.course_id == course.id)
@@ -191,8 +192,7 @@ async def _compute_alerts(db: AsyncSession, course: Course) -> list:
         attended_session_ids = {r.session_id for r in records}
         attended = len(attended_session_ids)
         _exc = await _excused_count(db, student.id, session_ids)
-        pct = score(total_sessions, attended, _exc,
-                    settings.ALLOWED_UNEXCUSED_ABSENCES).pct
+        pct = score(total_sessions, attended, _exc, _policy.allowed_unexcused).pct
 
         # Consecutive absences (from most recent)
         consecutive = 0
@@ -232,6 +232,7 @@ async def course_detail(
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Course not found", status_code=404)
+    _policy = policy_for(course, settings)
 
     # Sessions
     sess_stmt = select(Session).where(Session.course_id == course_id).order_by(Session.started_at.desc())
@@ -260,7 +261,7 @@ async def course_detail(
         else:
             attended = 0
         _exc = await _excused_count(db, s.id, session_ids)
-        _sc = score(total_sessions, attended, _exc, settings.ALLOWED_UNEXCUSED_ABSENCES)
+        _sc = score(total_sessions, attended, _exc, _policy.allowed_unexcused)
         student_stats.append({"student": s, "attended": attended, "total": total_sessions,
                               "pct": _sc.pct, "excused": _sc.excused,
                               "unexcused": _sc.unexcused, "forgiven": _sc.forgiven,
@@ -281,7 +282,8 @@ async def course_detail(
         "sessions": sessions,
         "student_stats": student_stats,
         "import_result": import_result,
-        "allowed_absences": settings.ALLOWED_UNEXCUSED_ABSENCES,
+        "allowed_absences": _policy.allowed_unexcused,
+        "policy": _policy,
     })
 
 
@@ -515,6 +517,7 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
+    _policy = policy_for(course, settings)
 
     sessions = (await db.execute(
         select(Session).where(Session.course_id == course_id).order_by(Session.started_at)
@@ -536,7 +539,7 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
     header.append("Total Present")
     header.append("Excused")
     header.append("Unexcused Absences")
-    header.append(f"Attendance % (first {settings.ALLOWED_UNEXCUSED_ABSENCES} unexcused forgiven)")
+    header.append(f"Attendance % (first {_policy.allowed_unexcused} unexcused forgiven)")
     writer.writerow(header)
 
     session_ids = [s.id for s in sessions]
@@ -551,7 +554,7 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
                     AttendanceRecord.student_id == student.id,
                 )
             )).scalar_one_or_none()
-            if rec and rec.status in PRESENT_STATUSES:
+            if rec and rec.status in _policy.present_statuses:
                 row.append(rec.status.capitalize())
                 present_count += 1
             elif rec and rec.status == EXCUSED_STATUS:
@@ -561,7 +564,7 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
                 row.append("Absent")
         row.append(str(present_count))
         _sc = score(len(sessions), present_count, excused_count,
-                    settings.ALLOWED_UNEXCUSED_ABSENCES)
+                    _policy.allowed_unexcused)
         row.append(str(_sc.excused))
         row.append(str(_sc.unexcused))
         row.append(f"{_sc.pct}%")
@@ -586,6 +589,7 @@ async def course_settings(request: Request, course_id: int, db: AsyncSession = D
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
+    _policy = policy_for(course, settings)
     institution = await db.get(Institution, course.institution_id) if course.institution_id else None
     return templates.TemplateResponse(request, "admin/settings.html", {
         "user": user,
@@ -593,6 +597,10 @@ async def course_settings(request: Request, course_id: int, db: AsyncSession = D
         "institution": institution,
         "is_admin": await is_admin(db, user),
         "base_url": settings.BASE_URL.rstrip("/"),
+        # Shown as placeholders so an instructor can see what "leave blank"
+        # will actually give them.
+        "default_allowed_absences": settings.ALLOWED_UNEXCUSED_ABSENCES,
+        "default_late_threshold": settings.LATE_THRESHOLD_MINUTES,
     })
 
 
@@ -614,6 +622,12 @@ async def save_course_settings(
     geofence_radius_m: Optional[float] = Form(None),
     geofence_enabled: bool = Form(False),
     allowed_ip_ranges: Optional[str] = Form(None),
+    # Empty string means "fall back to the institution default", which is why
+    # these are strings rather than ints: a blank number field posts "".
+    policy_section: Optional[str] = Form(None),
+    allowed_unexcused_absences: Optional[str] = Form(None),
+    late_threshold_minutes: Optional[str] = Form(None),
+    late_counts_present: bool = Form(False),
     d2l_host: str = Form(""),
     lti_consumer_key: str = Form(""),
     lti_consumer_secret: str = Form(""),
@@ -625,6 +639,7 @@ async def save_course_settings(
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
+    _policy = policy_for(course, settings)
 
     # Course details. A field absent from the POST is left alone; a field
     # present but empty is an explicit clear. Name is required either way, so
@@ -647,6 +662,23 @@ async def save_course_settings(
     course.geofence_enabled = geofence_enabled
     if allowed_ip_ranges is not None:
         course.allowed_ip_ranges = allowed_ip_ranges.strip() or None
+
+    # Attendance policy. Blank clears the override and returns the course to
+    # the institution default, which is the behaviour the placeholder promises.
+    def _optional_int(raw: Optional[str]) -> Optional[int]:
+        if raw is None or not raw.strip():
+            return None
+        try:
+            return max(0, int(raw.strip()))
+        except ValueError:
+            return None
+
+    if policy_section is not None:
+        # The block was on the submitted form, so blanks are deliberate and
+        # mean "inherit the institution default".
+        course.allowed_unexcused_absences = _optional_int(allowed_unexcused_absences)
+        course.late_threshold_minutes = _optional_int(late_threshold_minutes)
+        course.late_counts_present = late_counts_present
 
     # Institution-level LTI settings are shared by every course and every
     # instructor, so only an admin may change them. Without this, one
@@ -682,6 +714,7 @@ async def reset_course_data(request: Request, course_id: int, db: AsyncSession =
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
+    _policy = policy_for(course, settings)
     session_ids = select(Session.id).where(Session.course_id == course_id)
     await db.execute(delete(AttendanceRecord).where(AttendanceRecord.session_id.in_(session_ids)))
     await db.execute(delete(Session).where(Session.course_id == course_id))
@@ -704,6 +737,7 @@ async def remove_student_from_roster(request: Request, course_id: int, student_i
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
+    _policy = policy_for(course, settings)
     session_ids = select(Session.id).where(Session.course_id == course_id)
     await db.execute(delete(AttendanceRecord).where(and_(
         AttendanceRecord.student_id == student_id,
@@ -794,6 +828,7 @@ async def restore_from_d2l(request: Request, course_id: int,
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
+    _policy = policy_for(course, settings)
 
     raw = (await grades_file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.reader(io.StringIO(raw))
@@ -1029,7 +1064,7 @@ async def import_d2l_roster(
     )
 
 
-def _detail_ledger(student, sessions, statuses: dict, sc) -> str:
+def _detail_ledger(student, sessions, statuses: dict, sc, _policy) -> str:
     """One-cell, human-readable record of every class meeting.
 
     Example:
@@ -1045,7 +1080,7 @@ def _detail_ledger(student, sessions, statuses: dict, sc) -> str:
             continue
         entries.append((_to_local(s.started_at), statuses.get(s.id)))
     summary = (f"{sc.attended}/{sc.counted_total} present, "
-               f"{sc.unexcused} unexcused ({settings.ALLOWED_UNEXCUSED_ABSENCES} allowed)")
+               f"{sc.unexcused} unexcused ({_policy.allowed_unexcused} allowed)")
     if sc.excused:
         summary += f", {sc.excused} excused"
     return ledger.build(entries, summary)
@@ -1066,6 +1101,7 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
     course = await owned_course(db, user, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
+    _policy = policy_for(course, settings)
 
     sessions = (await db.execute(
         select(Session).where(Session.course_id == course_id).order_by(Session.started_at)
@@ -1129,8 +1165,7 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
             attended = 0
 
         _exc = await _excused_count(db, student.id, session_ids)
-        sc = score(total_sessions, attended, _exc,
-                   settings.ALLOWED_UNEXCUSED_ABSENCES)
+        sc = score(total_sessions, attended, _exc, _policy.allowed_unexcused)
         pct = sc.pct
 
         # OrgDefinedId: prefer d2l_user_id, fall back to student_id_number
@@ -1140,7 +1175,8 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
 
         row = [org_id, username, pct]
         if detail:
-            row.append(_detail_ledger(student, sessions, status_by_student.get(student.id, {}), sc))
+            row.append(_detail_ledger(student, sessions,
+                                      status_by_student.get(student.id, {}), sc, _policy))
         row.append("#")
         writer.writerow(row)
 
