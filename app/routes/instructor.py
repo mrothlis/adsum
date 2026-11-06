@@ -518,6 +518,10 @@ async def save_course_settings(
     request: Request,
     course_id: int,
     db: AsyncSession = Depends(get_db),
+    name: str = Form(""),
+    course_code: str = Form(""),
+    d2l_org_unit_id: str = Form(""),
+    d2l_attendance_checkin_url: str = Form(""),
     geofence_lat: Optional[float] = Form(None),
     geofence_lon: Optional[float] = Form(None),
     geofence_radius_m: float = Form(75.0),
@@ -534,6 +538,14 @@ async def save_course_settings(
     course = await db.get(Course, course_id)
     if not course:
         return HTMLResponse("Not found", status_code=404)
+
+    # Course details. Name is required, so ignore a blank submission rather
+    # than wiping the course's name.
+    if name.strip():
+        course.name = name.strip()
+    course.course_code = course_code.strip() or None
+    course.d2l_org_unit_id = d2l_org_unit_id.strip() or None
+    course.d2l_attendance_checkin_url = d2l_attendance_checkin_url.strip() or None
 
     course.geofence_lat = geofence_lat
     course.geofence_lon = geofence_lon
@@ -595,6 +607,48 @@ async def remove_student_from_roster(request: Request, course_id: int, student_i
     await db.execute(delete(CourseEnrollment).where(and_(
         CourseEnrollment.course_id == course_id,
         CourseEnrollment.student_id == student_id)))
+    await db.commit()
+    return RedirectResponse(f"/instructor/course/{course_id}", status_code=302)
+
+
+@router.post("/course/{course_id}/edit-student/{student_id}")
+async def edit_student(request: Request, course_id: int, student_id: int,
+                       db: AsyncSession = Depends(get_db),
+                       name: str = Form(""),
+                       student_id_number: str = Form(""),
+                       d2l_username: str = Form("")):
+    """Correct a student's details.
+
+    The D2L username is what the gradebook export matches on, so a typo or a
+    name change means the grade silently fails to land. This is the fix-it path
+    that avoids re-importing the whole roster.
+    """
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    enr = (await db.execute(select(CourseEnrollment).where(and_(
+        CourseEnrollment.course_id == course_id,
+        CourseEnrollment.student_id == student_id)))).scalar_one_or_none()
+    if not enr:
+        return HTMLResponse("Student is not on this roster", status_code=404)
+    student = await db.get(Student, student_id)
+    if not student:
+        return HTMLResponse("Not found", status_code=404)
+
+    if name.strip():
+        student.name = name.strip()
+    new_sid = student_id_number.strip()
+    if new_sid and new_sid != student.student_id_number:
+        # student_id_number is UNIQUE; refuse a collision instead of 500ing.
+        clash = (await db.execute(select(Student).where(and_(
+            Student.student_id_number == new_sid,
+            Student.id != student_id)))).scalar_one_or_none()
+        if clash:
+            return RedirectResponse(
+                f"/instructor/course/{course_id}?error=Student+ID+{new_sid}+is+already+used+by+{clash.name}",
+                status_code=302)
+        student.student_id_number = new_sid
+    student.d2l_username = d2l_username.strip() or None
     await db.commit()
     return RedirectResponse(f"/instructor/course/{course_id}", status_code=302)
 

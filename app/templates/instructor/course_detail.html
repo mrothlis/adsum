@@ -32,6 +32,12 @@
     </div>
     {% endif %}
 
+    {% if request.query_params.get('error') %}
+    <div class="alert alert-danger" style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;color:#991b1b;">
+        ❌ {{ request.query_params.get('error') }}
+    </div>
+    {% endif %}
+
     <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-end;">
         <form method="post" action="/instructor/course/{{ course.id }}/import-roster"
               enctype="multipart/form-data" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
@@ -68,6 +74,7 @@
             <tr>
                 <th>Name</th>
                 <th>Student ID</th>
+                <th>D2L Username</th>
                 <th>D2L</th>
                 <th>Sessions Attended</th>
                 <th>Attendance %</th>
@@ -78,8 +85,28 @@
         <tbody>
             {% for s in student_stats %}
             <tr class="{% if s.pct < 75 %}row-warning{% endif %}">
-                <td>{{ s.student.name }}</td>
-                <td>{{ s.student.student_id_number }}</td>
+                <td>
+                    <form method="post" id="edit-{{ s.student.id }}"
+                          action="/instructor/course/{{ course.id }}/edit-student/{{ s.student.id }}"
+                          style="margin:0;"></form>
+                    <input form="edit-{{ s.student.id }}" type="text" name="name"
+                           value="{{ s.student.name }}" required
+                           style="width:100%;border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:4px;"
+                           onfocus="this.style.borderColor='#cbd5e1';this.style.background='#fff';">
+                </td>
+                <td>
+                    <input form="edit-{{ s.student.id }}" type="text" name="student_id_number"
+                           value="{{ s.student.student_id_number }}"
+                           style="width:100%;border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:4px;"
+                           onfocus="this.style.borderColor='#cbd5e1';this.style.background='#fff';">
+                </td>
+                <td>
+                    <input form="edit-{{ s.student.id }}" type="text" name="d2l_username"
+                           value="{{ s.student.d2l_username or '' }}" placeholder="d2l username"
+                           title="Must match the Username column of your D2L classlist — this is what the gradebook import matches on."
+                           style="width:100%;border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:4px;"
+                           onfocus="this.style.borderColor='#cbd5e1';this.style.background='#fff';">
+                </td>
                 <td>
                     {% if s.student.d2l_verified %}
                     <span title="Verified in D2L roster" style="color:#16a34a;">✅</span>
@@ -104,11 +131,12 @@
                     <span class="badge badge-success">Good</span>
                     {% endif %}
                 </td>
-                <td>
+                <td style="white-space:nowrap;">
+                    <button form="edit-{{ s.student.id }}" type="submit" class="btn btn-sm btn-primary">Save</button>
                     <form method="post"
                           action="/instructor/course/{{ course.id }}/remove-student/{{ s.student.id }}"
                           onsubmit="return confirm('Remove {{ s.student.name }} from this roster? Their attendance records for this course are deleted too.');"
-                          style="margin:0;">
+                          style="margin:0;display:inline;">
                         <button type="submit" class="btn btn-sm btn-danger">Remove</button>
                     </form>
                 </td>

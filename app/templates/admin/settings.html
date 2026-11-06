@@ -17,6 +17,38 @@
 
 <form method="post" action="/instructor/course/{{ course.id }}/settings">
     <div class="card">
+        <h2>Course Details</h2>
+        <p class="text-muted">The name and code shown throughout the app and on exports.</p>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="name">Course Name</label>
+                <input type="text" id="name" name="name" required
+                       value="{{ course.name or '' }}" placeholder="Introduction to Business">
+            </div>
+            <div class="form-group">
+                <label for="course_code">Course Code</label>
+                <input type="text" id="course_code" name="course_code"
+                       value="{{ course.course_code or '' }}" placeholder="BUSA2115">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="d2l_org_unit_id">D2L Org Unit ID</label>
+                <input type="text" id="d2l_org_unit_id" name="d2l_org_unit_id"
+                       value="{{ course.d2l_org_unit_id or '' }}" placeholder="3573358">
+                <small class="text-muted">The number in your D2L course URL.</small>
+            </div>
+            <div class="form-group">
+                <label for="d2l_attendance_checkin_url">D2L Check-In Link</label>
+                <input type="url" id="d2l_attendance_checkin_url" name="d2l_attendance_checkin_url"
+                       value="{{ course.d2l_attendance_checkin_url or '' }}"
+                       placeholder="https://colstate.view.usg.edu/d2l/le/content/.../View">
+                <small class="text-muted">Where first-time students are sent to launch from D2L.</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
         <h2>Geofence Settings</h2>
         <p class="text-muted">Click the map (or drag the pin) to set the classroom location. Stand in the room and use "My Location" for best accuracy.</p>
         <div id="fence-map" style="height:350px;border-radius:8px;margin-bottom:1rem;z-index:0;"></div>
