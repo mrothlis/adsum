@@ -4,7 +4,11 @@
 {% block content %}
 <div class="page-header">
     <h1>Live Session</h1>
-    <p class="subtitle">{{ course.name }} {% if course.course_code %}({{ course.course_code }}){% endif %}</p>
+    <p class="subtitle">
+        {{ course.name }} {% if course.course_code %}({{ course.course_code }}){% endif %}
+        &middot; {{ session.started_at | localtime('%A, %B %-d, %Y') }}
+        &middot; started {{ session.started_at | localtime('%-I:%M %p') }}
+    </p>
 </div>
 
 <div class="session-layout">

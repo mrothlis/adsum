@@ -23,7 +23,7 @@ from app.models import (
     AttendanceRecord, Course, CourseEnrollment, Instructor,
     Institution, Session, Student,
 )
-from app.main import templates
+from app.main import templates, _to_local
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
@@ -410,7 +410,7 @@ async def analytics(request: Request, course_id: int, db: AsyncSession = Depends
                 AttendanceRecord.status.in_(["present", "late"]),
             )
         )).scalar() or 0
-        label = s.started_at.strftime("%m/%d") if s.started_at else "?"
+        label = _to_local(s.started_at).strftime("%m/%d") if s.started_at else "?"
         session_labels.append(label)
         session_counts.append(ct)
 
@@ -459,7 +459,7 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
 
     header = ["Student ID", "Name"]
     for s in sessions:
-        header.append(s.started_at.strftime("%Y-%m-%d %H:%M") if s.started_at else "Unknown")
+        header.append(_to_local(s.started_at).strftime("%Y-%m-%d %H:%M") if s.started_at else "Unknown")
     header.append("Total Present")
     header.append("Attendance %")
     writer.writerow(header)

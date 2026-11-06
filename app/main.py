@@ -27,7 +27,21 @@ def _localtime(value, fmt: str = "%H:%M"):
     """
     if value is None:
         return "\u2014"
-    return _to_local(value).strftime(fmt)
+    local = _to_local(value)
+    # "%-d"/"%-I" (strip leading zero) is glibc-only and raises on Windows.
+    # Format with the portable code, then trim the zero ourselves.
+    strip = []
+    portable = fmt
+    for code in ("d", "I", "m", "H", "j"):
+        if f"%-{code}" in portable:
+            portable = portable.replace(f"%-{code}", f"%{code}")
+            strip.append(code)
+    out = local.strftime(portable)
+    for code in strip:
+        padded = local.strftime(f"%{code}")
+        if padded.startswith("0") and len(padded) > 1:
+            out = out.replace(padded, padded.lstrip("0"), 1)
+    return out
 
 
 def _to_local(value):

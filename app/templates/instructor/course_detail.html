@@ -132,7 +132,7 @@
         <tbody>
             {% for s in sessions %}
             <tr>
-                <td>{{ s.started_at | localtime('%Y-%m-%d') }}</td>
+                <td>{{ s.started_at | localtime('%a %b %-d, %Y') }}</td>
                 <td>{{ s.started_at | localtime('%H:%M') }}</td>
                 <td>{{ s.ended_at | localtime('%H:%M') }}</td>
                 <td>
