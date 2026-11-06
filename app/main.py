@@ -93,12 +93,14 @@ async def healthz() -> dict:
 # ---- Register route modules ----
 # Imported here, not at the top: the route modules import `templates` and
 # `app` from this module, so importing them any earlier is a circular import.
+from app.routes.admin import router as admin_router  # noqa: E402
 from app.routes.api import router as api_router  # noqa: E402
 from app.routes.instructor import router as instructor_router  # noqa: E402
 from app.routes.lti import router as lti_router  # noqa: E402
 from app.routes.student import router as student_router  # noqa: E402
 
 app.include_router(instructor_router)
+app.include_router(admin_router)
 app.include_router(student_router)
 app.include_router(api_router, prefix="/api")
 app.include_router(lti_router, prefix="/lti")

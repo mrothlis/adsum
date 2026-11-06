@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}Administration{% endblock %}
+
+{% block content %}
+<div class="container">
+
+    <h1>Administration</h1>
+    <p class="text-muted">
+        Accounts and the shared D2L connection for this installation.
+        <strong>Attendance is not visible here</strong> &mdash; student records
+        belong to the instructor who teaches the course. To see a course's
+        attendance, you have to be an instructor on it.
+    </p>
+
+    {% if saved %}<div class="alert alert-success">{{ saved }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    <div class="card">
+        <h2>Instructors</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th><th>Email</th><th>Courses</th>
+                    <th>Role</th><th>Status</th><th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for i in instructors %}
+                <tr{% if not i.is_active %} style="opacity:0.55;"{% endif %}>
+                    <td>{{ i.name }}{% if i.id == me.id %} <span class="text-muted">(you)</span>{% endif %}</td>
+                    <td><code>{{ i.email }}</code></td>
+                    <td>{{ course_counts.get(i.id, 0) }}</td>
+                    <td>{{ "Admin" if i.is_admin else "Instructor" }}</td>
+                    <td>{{ "Active" if i.is_active else "Deactivated" }}</td>
+                    <td>
+                        {% if i.id != me.id %}
+                        <form method="post" action="/admin/instructors/{{ i.id }}/toggle-admin"
+                              style="display:inline;">
+                            <button type="submit" class="btn btn-sm">
+                                {{ "Remove admin" if i.is_admin else "Make admin" }}
+                            </button>
+                        </form>
+                        <form method="post" action="/admin/instructors/{{ i.id }}/toggle-active"
+                              style="display:inline;"
+                              onsubmit="return confirm('{{ "Reactivate" if not i.is_active else "Deactivate" }} {{ i.email }}?{{ "" if i.is_active else "" }}\n\nTheir courses and attendance history are kept either way.');">
+                            <button type="submit" class="btn btn-sm">
+                                {{ "Reactivate" if not i.is_active else "Deactivate" }}
+                            </button>
+                        </form>
+                        {% else %}
+                        <span class="text-muted">&mdash;</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p class="text-muted" style="margin-top:0.75rem;">
+            Accounts are deactivated, never deleted: grades already imported
+            into D2L refer to their courses. A deactivated account cannot sign
+            in, and you cannot change your own role or lock yourself out.
+        </p>
+    </div>
+
+    <div class="card">
+        <h2>Add an instructor</h2>
+        <p class="text-muted">
+            There is no self-registration, deliberately &mdash; this system holds
+            student records. Give the new instructor their password directly and
+            ask them to change it.
+        </p>
+        <form method="post" action="/admin/instructors/add">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="name">Name</label>
+                    <input type="text" id="name" name="name" required
+                           placeholder="Jane Doe">
+                </div>
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" required
+                           placeholder="doe_jane@example.edu">
+                    <small class="text-muted">
+                        Use the form your LMS reports, including any truncation.
+                    </small>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="password">Initial password</label>
+                    <input type="password" id="password" name="password" required
+                           minlength="12" placeholder="at least 12 characters">
+                </div>
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:0.5rem;margin-top:1.6rem;">
+                        <input type="checkbox" name="is_admin_flag" value="true">
+                        Also an administrator
+                    </label>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Add instructor</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Reset a password</h2>
+        <form method="post" action="/admin/instructors/0/reset-password"
+              id="reset-form"
+              onsubmit="this.action='/admin/instructors/' +
+                        document.getElementById('reset-target').value +
+                        '/reset-password';">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="reset-target">Account</label>
+                    <select id="reset-target" required>
+                        {% for i in instructors %}
+                        <option value="{{ i.id }}">{{ i.name }} &mdash; {{ i.email }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="new_password">New password</label>
+                    <input type="password" id="new_password" name="new_password"
+                           required minlength="12" placeholder="at least 12 characters">
+                </div>
+            </div>
+            <button type="submit" class="btn">Reset password</button>
+        </form>
+    </div>
+
+    {% if institution %}
+    <div class="card">
+        <h2>D2L Brightspace connection</h2>
+        <div class="alert alert-warning">
+            <strong>Shared by every course on this installation.</strong>
+            Changing the key or secret breaks every instructor's D2L launches
+            until the matching values are updated in D2L too. Change both
+            sides together, then click a launch to confirm.
+        </div>
+        <form method="post" action="/admin/d2l">
+            <div class="form-group">
+                <label for="d2l_host">D2L host</label>
+                <input type="text" id="d2l_host" name="d2l_host"
+                       value="{{ institution.d2l_host or '' }}"
+                       placeholder="yourschool.brightspace.com">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="lti_consumer_key">LTI consumer key</label>
+                    <input type="text" id="lti_consumer_key" name="lti_consumer_key"
+                           value="{{ institution.lti_consumer_key or '' }}">
+                </div>
+                <div class="form-group">
+                    <label for="lti_consumer_secret">LTI consumer secret</label>
+                    <input type="text" id="lti_consumer_secret" name="lti_consumer_secret"
+                           value="{{ institution.lti_consumer_secret or '' }}"
+                           placeholder="(generated on save if blank)">
+                </div>
+            </div>
+            <p class="text-muted">
+                Leave a field blank to keep its current value. Launch URL:
+                <code>{{ base_url }}/lti/launch</code>
+            </p>
+            <button type="submit" class="btn btn-primary">Save D2L connection</button>
+        </form>
+
+        <div class="card" style="background: var(--bg-muted, #f5f5f5); margin-top:1rem;">
+            <h3>Sharing this with several instructors</h3>
+            <p>
+                Anyone holding the consumer key and secret can forge a launch as
+                any user, so handing them to every colleague is the weak point
+                in a shared install. The cleaner arrangement is to have IT
+                register Adsum once as an <strong>org-level</strong> External
+                Learning Tool in D2L. Instructors can then add the link to their
+                own courses without ever seeing the secret.
+            </p>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <h2>Install health</h2>
+        <table>
+            <tbody>
+            {% for c in checks %}
+                <tr>
+                    <td style="width:2rem;">{{ "✅" if c.ok else "⚠️" }}</td>
+                    <td><strong>{{ c.name }}</strong></td>
+                    <td class="text-muted">{{ c.detail }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Deployment settings</h2>
+        <p class="text-muted">
+            These come from <code>.env</code> and are shown read-only on
+            purpose. Editing a database URL or signing key from a web form is
+            how an installation ends up unable to start. Change them on the
+            server and restart.
+        </p>
+        <table>
+            <tbody>
+                <tr><td><code>INSTITUTION_NAME</code></td><td>{{ settings.INSTITUTION_NAME }}</td></tr>
+                <tr><td><code>BASE_URL</code></td><td>{{ settings.BASE_URL }}</td></tr>
+                <tr><td><code>D2L_HOST</code></td><td>{{ settings.D2L_HOST or "(unset)" }}</td></tr>
+                <tr><td><code>DISPLAY_TIMEZONE</code></td><td>{{ settings.DISPLAY_TIMEZONE }}</td></tr>
+                <tr><td><code>QR_ROTATION_SECONDS</code></td><td>{{ settings.QR_ROTATION_SECONDS }}</td></tr>
+                <tr><td><code>DEBUG</code></td><td>{{ settings.DEBUG }}</td></tr>
+            </tbody>
+        </table>
+        <p class="text-muted">
+            Attendance policy is not listed because it is not an install
+            setting: each instructor sets forgiven absences and late credit on
+            their own courses.
+        </p>
+    </div>
+
+</div>
+{% endblock %}

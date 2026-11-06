@@ -76,6 +76,11 @@ class Instructor(Base):
     # A normal instructor manages their own courses and nothing else, so one
     # professor cannot break every other professor's D2L launches.
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Deactivation rather than deletion: a departed instructor's courses and
+    # attendance records must survive, because D2L grade history refers to
+    # them. Inactive accounts cannot sign in.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True,
+                                            server_default="1", nullable=False)
 
     enrollments: Mapped[List["CourseEnrollment"]] = relationship(
         back_populates="instructor",

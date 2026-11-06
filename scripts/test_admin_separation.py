@@ -142,14 +142,24 @@ check("shared LTI secret unchanged", after[2] == original[2])
 name = db().execute("SELECT name FROM courses WHERE id=?", (other_course,)).fetchone()[0]
 check("their own course details still saved", name == "Colleague Course", name)
 
-# --- the colleague must not see the shared secret
+# --- the shared secret is not on a course page at all any more
+# Institution-wide credentials moved to /admin, because a change with
+# install-wide blast radius must not live inside one course's URL. So the
+# assertion is now stronger than "hidden from the colleague": the secret must
+# be absent from the course page for EVERYONE, admin included.
 h = requests.get(f"{BASE}/instructor/course/{other_course}/settings", cookies=other).text
-check("secret hidden from colleague", (original[2] or "zzz") not in h)
-check("colleague told to ask an admin", "ask your administrator" in h.lower() or "only an administrator" in h.lower())
+check("secret absent from colleague's course page", (original[2] or "zzz") not in h)
+check("colleague pointed at an administrator",
+      "ask your administrator" in h.lower() or "administers this server" in h.lower())
 
-# --- the admin can still see and change it
 h = requests.get(f"{BASE}/instructor/course/{COURSE_ID}/settings", cookies=admin).text
-check("admin still sees the secret", (original[2] or "") in h)
+check("secret absent from the admin's course page too", (original[2] or "zzz") not in h)
+
+# --- and the admin can still see and change it in its proper home
+h = requests.get(f"{BASE}/admin", cookies=admin).text
+check("admin sees the secret on /admin", (original[2] or "") in h)
+h = requests.get(f"{BASE}/admin", cookies=other, allow_redirects=False)
+check("colleague refused on /admin", h.status_code == 403, f"status={h.status_code}")
 
 _own = db().execute("SELECT name, course_code, d2l_org_unit_id, geofence_lat, geofence_lon, "
                     "geofence_radius_m, geofence_enabled FROM courses WHERE id=?",

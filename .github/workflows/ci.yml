@@ -97,3 +97,6 @@ jobs:
 
       - name: Admin separation
         run: python scripts/test_admin_separation.py
+
+      - name: Admin page boundary
+        run: python scripts/test_admin_page.py

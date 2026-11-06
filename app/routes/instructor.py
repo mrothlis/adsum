@@ -89,6 +89,10 @@ async def login(
     stmt = select(Instructor).where(Instructor.email == email)
     result = await db.execute(stmt)
     instructor = result.scalar_one_or_none()
+    if instructor and not instructor.is_active:
+        # Same generic failure path as a bad password: do not confirm that an
+        # account exists to someone who cannot use it.
+        instructor = None
     if instructor and verify_password(password, instructor.password_hash):
         _login_fails.pop(ip, None)
         resp = RedirectResponse("/instructor/dashboard", status_code=302)
@@ -96,6 +100,12 @@ async def login(
             "role": "instructor",
             "instructor_id": instructor.id,
             "name": instructor.name,
+            # Carried in the signed cookie purely so the navigation can show
+            # the Admin link without a database query on every page render.
+            # It is never trusted for authorization: every admin route
+            # re-checks the database via require_admin, so a cookie left over
+            # from revoked rights renders a link that then returns 403.
+            "is_admin": bool(instructor.is_admin),
         })
         return resp
 
@@ -634,9 +644,6 @@ async def save_course_settings(
     allowed_unexcused_absences: Optional[str] = Form(None),
     late_threshold_minutes: Optional[str] = Form(None),
     late_counts_present: bool = Form(False),
-    d2l_host: str = Form(""),
-    lti_consumer_key: str = Form(""),
-    lti_consumer_secret: str = Form(""),
 ):
     user = require_instructor(request)
     if not user:
@@ -686,26 +693,10 @@ async def save_course_settings(
         course.late_threshold_minutes = _optional_int(late_threshold_minutes)
         course.late_counts_present = late_counts_present
 
-    # Institution-level LTI settings are shared by every course and every
-    # instructor, so only an admin may change them. Without this, one
-    # professor saving their own course settings would silently rewrite the
-    # LTI secret and break everyone else's D2L launches.
-    if course.institution_id and await is_admin(db, user):
-        institution = await db.get(Institution, course.institution_id)
-        if institution:
-            # Blank means "leave it alone", never "erase it". Submitting the
-            # form with empty LTI fields used to null the live credentials and
-            # silently break every D2L launch on the install.
-            if d2l_host.strip():
-                institution.d2l_host = d2l_host.strip()
-            if lti_consumer_key.strip():
-                institution.lti_consumer_key = lti_consumer_key.strip()
-            if lti_consumer_secret.strip():
-                institution.lti_consumer_secret = lti_consumer_secret.strip()
-            elif institution.lti_consumer_key and not institution.lti_consumer_secret:
-                # Key set but no secret yet: generate one so LTI can work.
-                import secrets as _secrets
-                institution.lti_consumer_secret = _secrets.token_urlsafe(32)
+    # Institution-level D2L settings are deliberately NOT accepted here. They
+    # are shared by every course, so a global change must not happen inside a
+    # single course's URL where its blast radius is invisible. They live at
+    # /admin instead.
 
     await db.commit()
     return RedirectResponse(f"/instructor/course/{course_id}/settings", status_code=302)

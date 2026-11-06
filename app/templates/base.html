@@ -17,6 +17,7 @@
                 <span class="nav-user">{{ user.name }}</span>
                 {% if user.role == 'instructor' %}
                     <a href="/instructor/dashboard">Dashboard</a>
+                    {% if user.is_admin %}<a href="/admin">Admin</a>{% endif %}
                     <a href="/instructor/logout">Logout</a>
                 {% endif %}
             {% endif %}

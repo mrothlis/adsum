@@ -48,6 +48,18 @@ async def owned_session(db: AsyncSession, user: dict | None, session_id: int):
     return session, course
 
 
+async def require_admin(db: AsyncSession, user: dict | None):
+    """Return the admin Instructor, or None if this user is not an admin.
+
+    Routes use this to answer with 403 rather than silently rendering an
+    empty page, so a privilege mistake is loud in testing instead of looking
+    like a cosmetic bug.
+    """
+    if not user or not await is_admin(db, user):
+        return None
+    return await db.get(Instructor, user.get("instructor_id"))
+
+
 async def is_admin(db: AsyncSession, user: dict | None) -> bool:
     """Is this instructor an installation admin?
 

@@ -293,14 +293,42 @@ not decide how many absences a colleague's students are allowed.
 
 ## Roles and multi-instructor use
 
-- **Instructor** — sees and manages only their own courses. Cannot reach
-  another instructor's courses, rosters, sessions or attendance.
-- **Admin** — additionally manages the shared D2L host and LTI credentials
-  that every course on the installation depends on.
+Two scopes, two places, and the split is deliberate.
 
-The separation is enforced on every route and asserted by two test suites that
-run in CI, because a privacy regression here is the worst thing this app could
-do.
+**Course settings** — `Course → Settings`, owned by the instructor who teaches
+it: name, D2L org unit, deep link, attendance policy, geofence, campus IPs.
+Everything here stops at the course boundary.
+
+**Administration** — `/admin`, admin-only: instructor accounts, the shared D2L
+host and LTI credentials, and a read-only install health panel. These are
+install-wide, which is exactly why they are *not* on a course page — a change
+that breaks every instructor's launches should not happen at a URL that says
+*course 2*.
+
+| | Instructor | Admin |
+|---|---|---|
+| Their own courses and attendance | yes | yes |
+| Another instructor's attendance | **no** | **no** |
+| Add, deactivate, reset accounts | no | yes |
+| Shared D2L host and LTI credentials | no | yes |
+
+**An admin cannot read any course's attendance.** That is a design decision,
+not an oversight. Attendance records are student education records; the
+isolation suite guarantees instructor A cannot reach instructor B's students,
+and that guarantee would be worth nothing if it ended at "unless you are an
+admin". Someone keeping the server running does not need to read attendance to
+do it. An admin who needs a course's data has to be added to that course as an
+instructor, visibly.
+
+So `/admin` has no cross-course browsing, no global attendance report and no
+impersonation — and `scripts/test_admin_page.py` fails the build if one
+appears. Deployment values (`SECRET_KEY`, `DATABASE_URL`, `DEBUG`) are shown
+read-only; editing those from a web form is how an installation ends up unable
+to start.
+
+Accounts are **deactivated, never deleted** — grades already imported into D2L
+refer to their courses. There is no self-registration, and an admin cannot
+remove their own rights or lock themselves out.
 
 ## Security
 
@@ -352,6 +380,7 @@ python scripts/verify_install.py         # clean-install check; no server needed
 python scripts/smoke_test.py             # end-to-end happy path
 python scripts/test_isolation.py         # one instructor cannot reach another's data
 python scripts/test_admin_separation.py  # non-admins cannot change shared config
+python scripts/test_admin_page.py         # /admin stays inside its boundary
 ruff check app scripts run.py backup_db.py
 ```
 
