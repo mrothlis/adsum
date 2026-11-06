@@ -8,7 +8,7 @@ import os
 from typing import Optional
 
 from fastapi import Request, Response
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.config import settings
 

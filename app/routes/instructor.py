@@ -5,29 +5,37 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import time as _time
 from typing import Optional
 from urllib.parse import quote_plus
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-from sqlalchemy import delete, select, func, and_
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app import ledger
 from app.auth import (
-    get_current_user, hash_password, verify_password,
-    set_session_cookie, clear_session_cookie,
+    clear_session_cookie,
+    get_current_user,
+    set_session_cookie,
+    verify_password,
 )
+from app.authz import is_admin, owned_course, owned_session
 from app.config import settings
 from app.database import get_db
+from app.main import _to_local, templates
 from app.models import (
-    AttendanceRecord, Course, CourseEnrollment, Instructor,
-    Institution, Session, Student,
+    AttendanceRecord,
+    Course,
+    CourseEnrollment,
+    Institution,
+    Instructor,
+    Session,
+    Student,
 )
-from app.main import templates, _to_local
-from app.scoring import score, PRESENT_STATUSES, EXCUSED_STATUS
-from app import ledger
-from app.authz import owned_course, owned_session, is_admin
+from app.scoring import EXCUSED_STATUS, PRESENT_STATUSES, score
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
@@ -44,8 +52,6 @@ def require_instructor(request: Request) -> dict:
 # ─── Login / Logout ────────────────────────────────────────
 
 # Simple brute-force throttle: 5 failed attempts per IP -> 10-minute lockout.
-import time as _time
-
 LOGIN_MAX_FAILS = 5
 LOGIN_LOCKOUT_SECONDS = 600
 _login_fails: dict = {}  # ip -> [fail_count, lockout_until_epoch]

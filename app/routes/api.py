@@ -4,21 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import json
-import datetime as dt
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from app.auth import get_current_user
-from app.config import settings
 from app.authz import owned_session
-from app.database import get_db, async_session
-from app.models import AttendanceRecord, Session, Student, CourseEnrollment
-from app.qr import generate_token, generate_qr_base64
+from app.config import settings
+from app.database import async_session, get_db
+from app.models import AttendanceRecord, CourseEnrollment, Session
+from app.qr import generate_qr_base64, generate_token
 
 router = APIRouter(tags=["api"])
 

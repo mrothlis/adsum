@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 import secrets
-from sqlalchemy import select, func
 
-from app.database import async_session
-from app.models import Institution, Course, Instructor, Student, CourseEnrollment
+from sqlalchemy import func, select
+
 from app.auth import hash_password
 from app.config import settings
+from app.database import async_session
+from app.models import Course, CourseEnrollment, Institution, Instructor, Student
 
 log = logging.getLogger(__name__)
 

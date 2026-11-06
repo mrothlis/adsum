@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import os
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -92,10 +91,12 @@ async def healthz() -> dict:
 
 
 # ---- Register route modules ----
-from app.routes.instructor import router as instructor_router
-from app.routes.student import router as student_router
-from app.routes.api import router as api_router
-from app.routes.lti import router as lti_router
+# Imported here, not at the top: the route modules import `templates` and
+# `app` from this module, so importing them any earlier is a circular import.
+from app.routes.api import router as api_router  # noqa: E402
+from app.routes.instructor import router as instructor_router  # noqa: E402
+from app.routes.lti import router as lti_router  # noqa: E402
+from app.routes.student import router as student_router  # noqa: E402
 
 app.include_router(instructor_router)
 app.include_router(student_router)

@@ -62,14 +62,16 @@ def check_env_example_matches_config() -> None:
 def check_no_personal_identifiers() -> None:
     tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True,
                              text=True).stdout.split()
-    # LICENSE legitimately carries the copyright holder's name.
+    # LICENSE legitimately carries the copyright holder's name, and this file
+    # necessarily contains the patterns it searches for.
+    exempt = {"LICENSE", "scripts/verify_install.py"}
     pattern = re.compile(
         r"rothlisberger|drrothlisberger|colstate\.view|columbusstate|"
         r"stu_garver|young_melissa|csu_session|CSU Check-In",
         re.I)
     hits = []
     for rel in tracked:
-        if rel == "LICENSE":
+        if rel in exempt:
             continue
         try:
             text = (ROOT / rel).read_text(encoding="utf-8")

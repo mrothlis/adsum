@@ -13,7 +13,6 @@ can push grades directly. For now they are stub-ready.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 log = logging.getLogger(__name__)
 

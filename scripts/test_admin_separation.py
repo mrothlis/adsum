@@ -67,7 +67,7 @@ def inst():
 
 # Create a genuine second professor with their own course.
 conn = db()
-from app.auth import hash_password, create_session_token  # noqa: E402
+from app.auth import create_session_token, hash_password  # noqa: E402
 
 conn.execute("INSERT OR IGNORE INTO instructors (name,email,password_hash,is_admin) VALUES (?,?,?,0)",
              ("Test Colleague", "colleague@example.edu", hash_password("x" * 12)))

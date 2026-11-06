@@ -6,19 +6,24 @@ import datetime as dt
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select, func
+from fastapi.responses import HTMLResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_user, set_session_cookie
+from app.auth import get_current_user
 from app.config import settings
 from app.database import get_db
 from app.geo import check_geofence, check_ip_range
+from app.main import templates
 from app.models import (
-    AttendanceRecord, Course, CourseEnrollment, Institution, Session, Student,
+    AttendanceRecord,
+    Course,
+    CourseEnrollment,
+    Institution,
+    Session,
+    Student,
 )
 from app.qr import verify_token
-from app.main import templates
 
 router = APIRouter(prefix="/student", tags=["student"])
 

@@ -94,6 +94,7 @@ for path, data in [(f"/instructor/course/{COURSE_ID}/reset-data", {}),
     check(f"blocked POST {path}", r.status_code in (302, 303, 403, 404), f"status={r.status_code}")
 
 import sqlite3  # noqa: E402
+
 nm = sqlite3.connect("csu_checkin_v2.db", timeout=10).execute(
     "SELECT name FROM students WHERE id=?", (TEST_STUDENT_ID,)).fetchone()[0]
 check("student record untouched by other instructor", nm != "HACKED", f"name={nm}")

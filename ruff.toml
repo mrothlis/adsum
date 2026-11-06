@@ -1,0 +1,31 @@
+# Ruff configuration.
+#
+# The selection is deliberately narrow: rules that catch real defects
+# (undefined names, unused imports, likely bugs) plus import ordering, which
+# keeps diffs small. Stylistic modernisation rules are left off so that
+# contributors are not forced through unrelated churn to land a one-line fix.
+
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = [
+    "E4",   # import shadowing / placement errors
+    "E7",   # statement-level mistakes (comparisons to None/True, etc.)
+    "E9",   # syntax and IO errors
+    "F",    # pyflakes: undefined names, unused imports, bad f-strings
+    "I",    # import sorting
+    "B",    # bugbear: likely bugs
+]
+
+ignore = [
+    # FastAPI's dependency injection is written as `x = Depends(...)` in the
+    # signature. That is the framework's documented idiom, not a mutable
+    # default argument bug.
+    "B008",
+]
+
+[lint.per-file-ignores]
+# Test and verification scripts intentionally import the app after adjusting
+# sys.path, so module-level imports cannot all sit at the top of the file.
+"scripts/*.py" = ["E402"]

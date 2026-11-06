@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Proves a stranger can clone this and get a working server: the committed
+  # tree is exported to a scratch directory, configured only from .env.example,
+  # and started. Also fails if a secret, a database, or any identifier
+  # belonging to the original author is ever committed.
+  clean-install:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # verify_install.py exports HEAD, so it needs real history.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Byte-compile every module
+        run: python -m compileall -q app scripts run.py backup_db.py
+
+      - name: Verify a clean install
+        run: python scripts/verify_install.py
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install linters
+        run: pip install ruff
+
+      - name: Ruff
+        run: ruff check app scripts run.py backup_db.py
+
+  # The isolation tests are the ones that catch a privacy regression, so they
+  # run against a real server with a seeded course rather than being skipped.
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      SECRET_KEY: ci-only-secret-key-not-used-anywhere-else-0123456789
+      ADMIN_EMAIL: admin@example.edu
+      ADMIN_PASSWORD: CiTestPassword123!
+      DATABASE_URL: sqlite+aiosqlite:///./ci.db
+      BASE_URL: http://127.0.0.1:8000
+      SEED_DEMO: "true"
+      DEBUG: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Start the server
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8000/healthz; then echo; exit 0; fi
+            sleep 1
+          done
+          echo "server failed to start"; exit 1
+
+      - name: Smoke test
+        run: python scripts/smoke_test.py
+
+      - name: Instructor isolation
+        run: python scripts/test_isolation.py
+
+      - name: Admin separation
+        run: python scripts/test_admin_separation.py

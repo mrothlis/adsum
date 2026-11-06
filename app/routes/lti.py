@@ -17,7 +17,6 @@ import logging
 import secrets
 import time
 import urllib.parse
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -27,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import hash_password, set_session_cookie
 from app.config import settings
 from app.database import get_db
-from app.models import Course, CourseEnrollment, Instructor, Institution, LtiLaunch, Student
+from app.models import Course, CourseEnrollment, Institution, Instructor, LtiLaunch, Student
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["lti"])

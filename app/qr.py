@@ -10,7 +10,6 @@ import time
 from typing import Tuple
 
 import qrcode  # type: ignore
-from qrcode.image.pil import PilImage  # type: ignore
 
 from app.config import settings
 

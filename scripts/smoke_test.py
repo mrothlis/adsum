@@ -12,7 +12,6 @@ Usage:
 Exits non-zero on any failure.
 """
 import os
-import re
 import sqlite3
 import sys
 import time as _time
@@ -158,7 +157,7 @@ def main():
     if _geo and _geo[0] and _geo[1] is not None:
         checkin_data["gps_lat"] = str(_geo[1])
         checkin_data["gps_lon"] = str(_geo[2])
-        print(f"   (course 2 enforces a geofence; sending in-fence coords)")
+        print("   (course 2 enforces a geofence; sending in-fence coords)")
 
     tok = s.get(f"{BASE}/api/qr/{sid}", cookies=icook).json()["token"]
     checkin_data["token"] = tok
