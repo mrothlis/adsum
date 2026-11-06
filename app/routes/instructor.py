@@ -318,8 +318,10 @@ async def mark_present(
     if not user:
         return RedirectResponse("/", status_code=302)
     session = await db.get(Session, session_id)
-    if not session or session.ended_at is not None:
+    if not session:
         return RedirectResponse(f"/instructor/session/{session_id}", status_code=302)
+    # Deliberately allowed on an ENDED session: students routinely sort out a
+    # missed check-in after class, and the roll would otherwise be frozen wrong.
     existing = (await db.execute(select(AttendanceRecord).where(
         AttendanceRecord.session_id == session_id,
         AttendanceRecord.student_id == student_id,
@@ -334,6 +336,27 @@ async def mark_present(
 
 
 # ─── Live session view ──────────────────────────────────────
+
+@router.post("/session/{session_id}/unmark")
+async def unmark_attendance(request: Request, session_id: int,
+                            db: AsyncSession = Depends(get_db),
+                            student_id: int = Form(...)):
+    """Remove an attendance record -- the undo for a mistaken or proxy check-in.
+
+    Works on ended sessions too, for the same reason mark_present does.
+    """
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    session = await db.get(Session, session_id)
+    if not session:
+        return HTMLResponse("Not found", status_code=404)
+    await db.execute(delete(AttendanceRecord).where(and_(
+        AttendanceRecord.session_id == session_id,
+        AttendanceRecord.student_id == student_id)))
+    await db.commit()
+    return RedirectResponse(f"/instructor/session/{session_id}", status_code=302)
+
 
 @router.get("/session/{session_id}", response_class=HTMLResponse)
 async def session_view(request: Request, session_id: int, db: AsyncSession = Depends(get_db)):

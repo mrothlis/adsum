@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>Live Session</h1>
+    <h1>{% if session.ended_at %}Session Review{% else %}Live Session{% endif %}</h1>
     <p class="subtitle">
         {{ course.name }} {% if course.course_code %}({{ course.course_code }}){% endif %}
         &middot; {{ session.started_at | localtime('%A, %B %-d, %Y') }}
@@ -14,6 +14,17 @@
 <div class="session-layout">
     <!-- QR Code Panel -->
     <div class="card qr-panel">
+        {% if session.ended_at %}
+        <h2>✔️ Session Ended</h2>
+        <p class="text-muted text-center">
+            Ended {{ session.ended_at | localtime('%-I:%M %p') }}.
+            You can still add or remove students below; the gradebook export
+            updates to match.
+        </p>
+        <div class="session-controls">
+            <a href="/instructor/course/{{ course.id }}" class="btn btn-outline">← Back to course</a>
+        </div>
+        {% else %}
         <h2>📱 Scan to Check In</h2>
         <div id="qr-container">
             <img id="qr-image" src="" alt="QR Code" class="qr-code">
@@ -25,6 +36,7 @@
                 <button type="submit" class="btn btn-danger">End Session</button>
             </form>
         </div>
+        {% endif %}
     </div>
 
     <!-- Attendance Panel -->
@@ -48,6 +60,7 @@
                     <th>ID</th>
                     <th>Time</th>
                     <th>Status</th>
+                    {% if session.ended_at %}<th></th>{% endif %}
                 </tr>
             </thead>
             <tbody id="attendance-body">
@@ -61,6 +74,16 @@
                             {{ r.status|capitalize }}
                         </span>
                     </td>
+                    {% if session.ended_at %}
+                    <td>
+                        <form method="post" action="/instructor/session/{{ session.id }}/unmark"
+                              onsubmit="return confirm('Remove {{ r.student.name if r.student else 'this student' }} from this session?');"
+                              style="margin:0;">
+                            <input type="hidden" name="student_id" value="{{ r.student_id }}">
+                            <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                        </form>
+                    </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -74,7 +97,10 @@
                 <option value="{{ s.id }}">{{ s.name }}</option>
                 {% endfor %}
             </select>
-            <button type="submit" class="btn btn-outline" title="For a student whose phone or location fails">Mark Present</button>
+            <button type="submit" class="btn btn-outline"
+                    title="For a student whose phone or location failed, or who sorted it out after class">
+                {% if session.ended_at %}Add to this session{% else %}Mark Present{% endif %}
+            </button>
         </form>
         {% endif %}
     </div>
@@ -82,6 +108,7 @@
 {% endblock %}
 
 {% block scripts %}
+{% if not session.ended_at %}
 <script>
 const SESSION_ID = {{ session.id }};
 const ROTATION_MS = {{ qr_rotation_seconds }} * 1000;
@@ -90,7 +117,8 @@ const ROTATION_MS = {{ qr_rotation_seconds }} * 1000;
 let qrTimer = null;
 function stopQR(message) {
     if (qrTimer !== null) { clearInterval(qrTimer); qrTimer = null; }
-    document.getElementById('qr-container').innerHTML = '<p class="text-muted">' + message + '</p>';
+    const box = document.getElementById('qr-container');
+    if (box) box.innerHTML = '<p class="text-muted">' + message + '</p>';
 }
 
 async function refreshQR() {
@@ -147,4 +175,5 @@ refreshQR();
 qrTimer = setInterval(refreshQR, ROTATION_MS);
 connectSSE();
 </script>
+{% endif %}
 {% endblock %}
