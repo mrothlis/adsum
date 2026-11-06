@@ -66,8 +66,12 @@ def main():
     check("old password (admin123) rejected", r.status_code == 401)
 
     # 4. login throttle (fake IP) — fixed IPs to avoid collision
-    throttle_ip = "203.0.113.50"
-    other_ip = "203.0.113.51"
+    # Use a fresh IP pair each run: the lockout lasts 10 minutes, so reusing a
+    # fixed IP makes a second run inside that window fail spuriously.
+    import random as _random
+    _octet = _random.randint(2, 250)
+    throttle_ip = f"203.0.113.{_octet}"
+    other_ip = f"198.51.100.{_octet}"
     codes = [requests.post(BASE + "/instructor/login",
                            data={"email": "rothlisberger_michael@columbusstate.edu", "password": "wrong" + str(i)},
                            headers={"X-Forwarded-For": throttle_ip},
@@ -90,24 +94,49 @@ def main():
     r = requests.get(BASE + "/student/checkin", params={"token": tok})
     check("anon page has Launch-from-D2L", r.status_code == 200 and "Launch from D2L" in r.text)
 
-    # 7. forged student LTI cookie (student 11 is enrolled in course 2)
+    # 7. forged student LTI cookie for whoever is actually enrolled in course 2.
+    # Don't hardcode an id -- rosters change, and a removed student made this fail spuriously.
     from app.auth import create_session_token
-    scook = {"csu_session": create_session_token({"role": "student", "student_id": 11,
-                                                   "name": "Michael Rothlisberger", "lti": True})}
+    _db = get_db()
+    _row = _db.execute(
+        "SELECT s.id, s.name FROM course_enrollments ce "
+        "JOIN students s ON s.id = ce.student_id "
+        "WHERE ce.course_id = 2 AND ce.role = 'student' ORDER BY s.id LIMIT 1").fetchone()
+    _db.close()
+    if not _row:
+        raise SystemExit("smoke test needs at least one student enrolled in course 2")
+    test_student_id, test_student_name = _row
+    print(f"   (using enrolled student {test_student_id}: {test_student_name})")
+    scook = {"csu_session": create_session_token({"role": "student", "student_id": test_student_id,
+                                                   "name": test_student_name, "lti": True})}
 
-    # 8. check-in (no geofence enforcement → GPS optional)
+    # 8. check-in. If the course enforces a geofence, send coordinates at its
+    # centre -- otherwise the test fails on configuration rather than on code.
+    _db = get_db()
+    _geo = _db.execute(
+        "SELECT geofence_enabled, geofence_lat, geofence_lon FROM courses WHERE id = 2").fetchone()
+    _db.close()
+    checkin_data: dict[str, str] = {}
+    if _geo and _geo[0] and _geo[1] is not None:
+        checkin_data["gps_lat"] = str(_geo[1])
+        checkin_data["gps_lon"] = str(_geo[2])
+        print(f"   (course 2 enforces a geofence; sending in-fence coords)")
+
     tok = s.get(f"{BASE}/api/qr/{sid}", cookies=icook).json()["token"]
-    r = requests.post(BASE + "/student/checkin", data={"token": tok}, cookies=scook)
+    checkin_data["token"] = tok
+    r = requests.post(BASE + "/student/checkin", data=checkin_data, cookies=scook)
     check("student check-in succeeds", r.status_code == 200 and "Checked in successfully" in r.text)
 
     # 9. DB record exists with status=present
     db = get_db()
-    rec = db.execute("SELECT status FROM attendance_records WHERE session_id=? AND student_id=11", (sid,)).fetchone()
+    rec = db.execute("SELECT status FROM attendance_records WHERE session_id=? AND student_id=?",
+                     (sid, test_student_id)).fetchone()
     check("AttendanceRecord written (present)", rec and rec[0] == "present")
 
     # 10. duplicate check-in blocked gracefully
     tok = s.get(f"{BASE}/api/qr/{sid}", cookies=icook).json()["token"]
-    r = requests.post(BASE + "/student/checkin", data={"token": tok}, cookies=scook)
+    checkin_data["token"] = tok
+    r = requests.post(BASE + "/student/checkin", data=checkin_data, cookies=scook)
     check("duplicate → 'already checked in'", "already checked in" in r.text)
 
     # 11. manual mark-present (course 1, student 3)

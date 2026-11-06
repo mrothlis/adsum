@@ -573,6 +573,32 @@ async def reset_course_data(request: Request, course_id: int, db: AsyncSession =
     return RedirectResponse(f"/instructor/course/{course_id}?reset=1", status_code=302)
 
 
+@router.post("/course/{course_id}/remove-student/{student_id}")
+async def remove_student_from_roster(request: Request, course_id: int, student_id: int,
+                                     db: AsyncSession = Depends(get_db)):
+    """Unenroll a student from this course and drop their attendance for it.
+
+    Needed for drops, mis-imports, and phantom records (e.g. an instructor who
+    once launched the tool with a learner role). Scoped to this course only --
+    the student row itself is kept in case other courses reference it.
+    """
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    course = await db.get(Course, course_id)
+    if not course:
+        return HTMLResponse("Not found", status_code=404)
+    session_ids = select(Session.id).where(Session.course_id == course_id)
+    await db.execute(delete(AttendanceRecord).where(and_(
+        AttendanceRecord.student_id == student_id,
+        AttendanceRecord.session_id.in_(session_ids))))
+    await db.execute(delete(CourseEnrollment).where(and_(
+        CourseEnrollment.course_id == course_id,
+        CourseEnrollment.student_id == student_id)))
+    await db.commit()
+    return RedirectResponse(f"/instructor/course/{course_id}", status_code=302)
+
+
 # ─── D2L Integration ────────────────────────────────────────
 
 def _match_column(headers: list[str], *candidates: str) -> int | None:

@@ -137,14 +137,14 @@ async def do_checkin(
             message="You've already checked in for this session! ✅",
         )
 
-    # 6. Check-in window
-    if session.started_at:
-        elapsed = (dt.datetime.utcnow() - session.started_at).total_seconds() / 60
-        if elapsed > settings.CHECKIN_WINDOW_MINUTES:
-            return _checkin_response(
-                request, token,
-                errors=[f"Check-in window closed ({settings.CHECKIN_WINDOW_MINUTES} minutes after session start)."],
-            )
+    # 6. Check-in window (disabled — instructor decides when to end session)
+    # if session.started_at:
+    #     elapsed = (dt.datetime.utcnow() - session.started_at).total_seconds() / 60
+    #     if elapsed > settings.CHECKIN_WINDOW_MINUTES:
+    #         return _checkin_response(
+    #             request, token,
+    #             errors=[f"Check-in window closed ({settings.CHECKIN_WINDOW_MINUTES} minutes after session start)."],
+    #         )
 
     # 7. Geofence — enforced only when the course enables it
     course = await db.get(Course, session.course_id)

@@ -13,5 +13,9 @@ qrcode[pil]==8.2
 pillow==12.3.0
 sse-starlette==3.6.0
 
+# IANA timezone database. Windows ships no system tz data, so zoneinfo
+# (used to show check-in times in local time) fails without this.
+tzdata==2026.6
+
 # dev/test only (smoke test script)
 requests==2.34.2

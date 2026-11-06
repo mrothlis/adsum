@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 from pathlib import Path
 
@@ -15,6 +16,37 @@ from app.database import init_db
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+def _localtime(value, fmt: str = "%H:%M"):
+    """Render a naive-UTC datetime in the institution's local timezone.
+
+    Every timestamp in the DB is stored as naive UTC (datetime.utcnow()).
+    Displaying it raw showed class times several hours off, so templates
+    must use this filter instead of calling .strftime() directly.
+    """
+    if value is None:
+        return "\u2014"
+    return _to_local(value).strftime(fmt)
+
+
+def _to_local(value):
+    """Convert a naive-UTC datetime to DISPLAY_TIMEZONE.
+
+    Falls back to a fixed UTC offset if the IANA tz database is unavailable
+    (Windows has no system tz data unless the `tzdata` package is installed),
+    so times are never silently rendered as UTC.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=dt.timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        return value.astimezone(ZoneInfo(settings.DISPLAY_TIMEZONE))
+    except Exception:
+        return value.astimezone(dt.timezone(dt.timedelta(hours=settings.DISPLAY_UTC_OFFSET_HOURS)))
+
+
+templates.env.filters["localtime"] = _localtime
 
 app = FastAPI(title="CSU Check-In", version="0.1.0")
 

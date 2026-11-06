@@ -22,6 +22,14 @@ from app.qr import generate_token, generate_qr_base64
 router = APIRouter(tags=["api"])
 
 
+def _local_hms(value) -> str:
+    """Format a naive-UTC timestamp as local wall-clock time for the live table."""
+    if value is None:
+        return ""
+    from app.main import _to_local
+    return _to_local(value).strftime("%H:%M:%S")
+
+
 @router.get("/qr/{session_id}")
 async def get_qr(request: Request, session_id: int, db: AsyncSession = Depends(get_db)):
     """Return the current QR code as a base64 data-URI plus the check-in URL."""
@@ -71,7 +79,7 @@ async def attendance_list(session_id: int, db: AsyncSession = Depends(get_db)):
                 "student_id": r.student.student_id_number if r.student else "",
                 "d2l_verified": r.student.d2l_verified if r.student else False,
                 "status": r.status,
-                "checked_in_at": r.checked_in_at.strftime("%H:%M:%S") if r.checked_in_at else "",
+                "checked_in_at": _local_hms(r.checked_in_at),
                 "distance_m": r.gps_distance_m,
                 "ip_in_range": r.ip_in_range,
             }
@@ -127,7 +135,7 @@ async def attendance_stream(request: Request, session_id: int):
                                 "student_id": r.student.student_id_number if r.student else "",
                                 "d2l_verified": r.student.d2l_verified if r.student else False,
                                 "status": r.status,
-                                "checked_in_at": r.checked_in_at.strftime("%H:%M:%S") if r.checked_in_at else "",
+                                "checked_in_at": _local_hms(r.checked_in_at),
                             }
                             for r in records
                         ],

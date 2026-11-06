@@ -30,6 +30,11 @@ class Settings:
     DEFAULT_GEOFENCE_RADIUS_M: float = 75.0
     LATE_THRESHOLD_MINUTES: int = 10
     CHECKIN_WINDOW_MINUTES: int = 15
+
+    # Timestamps are stored as naive UTC; this is the zone they're DISPLAYED in.
+    DISPLAY_TIMEZONE: str = os.getenv("DISPLAY_TIMEZONE", "America/New_York")
+    # Fallback offset used only if the IANA tz database is missing.
+    DISPLAY_UTC_OFFSET_HOURS: int = int(os.getenv("DISPLAY_UTC_OFFSET_HOURS", "-5"))
     BASE_URL: str = "http://localhost:8000"
 
     def __post_init__(self) -> None:
