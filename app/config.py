@@ -32,15 +32,20 @@ class Settings:
     PORT: int = 8000
     # Safe by default: DEBUG leaks tracebacks to users.
     DEBUG: bool = False
+    # A token is valid for its own rotation slot plus the previous one, so the
+    # effective lifetime is between one and two times this value. There is no
+    # separate expiry setting: a second knob that silently disagreed with the
+    # rotation period would be worse than none.
     QR_ROTATION_SECONDS: int = 20
-    QR_TOKEN_EXPIRY_SECONDS: int = 30
     # Only the starting position of the map picker, not a real classroom.
     # Each course sets its own geofence in the UI.
     DEFAULT_GEOFENCE_LAT: float = 0.0
     DEFAULT_GEOFENCE_LON: float = 0.0
     DEFAULT_GEOFENCE_RADIUS_M: float = 75.0
+    # Minutes after a session starts before a check-in is recorded as late.
+    # There is deliberately no hard cut-off: the instructor decides when a
+    # session ends, and a student arriving late is handled in person.
     LATE_THRESHOLD_MINUTES: int = 10
-    CHECKIN_WINDOW_MINUTES: int = 15
 
     # Timestamps are stored as naive UTC; this is the zone they're DISPLAYED in.
     DISPLAY_TIMEZONE: str = os.getenv("DISPLAY_TIMEZONE", "America/New_York")

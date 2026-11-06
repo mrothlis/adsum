@@ -1,5 +1,11 @@
 # Adsum
 
+[![CI](https://github.com/mrothlis/adsum/actions/workflows/ci.yml/badge.svg)](https://github.com/mrothlis/adsum/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+
+*Adsum* is Latin for "I am present" — the answer given at roll call.
+
 Classroom attendance via a rotating QR code, with results pushed into the
 D2L Brightspace gradebook.
 
@@ -119,9 +125,9 @@ All settings live in `.env`; see `.env.example` for the full list.
 | `INSTITUTION_NAME`, `D2L_HOST`, `LTI_CONSUMER_KEY` | Institution identity, used when seeding. |
 | `ALLOWED_UNEXCUSED_ABSENCES` | Free absences before the grade is affected (default 3). |
 | `DISPLAY_TIMEZONE` | Zone for displayed times. Timestamps are stored as UTC. |
-| `QR_ROTATION_SECONDS` | Token rotation interval (default 20). |
+| `QR_ROTATION_SECONDS` | Token rotation interval (default 20); a token lasts 20-40s. |
 | `DEFAULT_GEOFENCE_LAT/LON/RADIUS_M` | Starting map position and radius for new courses. |
-| `CHECKIN_WINDOW_MINUTES`, `LATE_THRESHOLD_MINUTES` | Late handling. |
+| `LATE_THRESHOLD_MINUTES` | Minutes before a check-in counts as late (default 10). |
 | `DATABASE_URL` | Defaults to local SQLite. |
 | `SEED_DEMO` | `true` seeds a demo course and students. Development only. |
 | `DEBUG` | Leave `false` outside local debugging. |
