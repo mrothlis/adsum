@@ -48,8 +48,23 @@ BASE_URL = (os.getenv("BASE_URL") or _from_env_file("BASE_URL")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") or _from_env_file("ADMIN_EMAIL")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or _from_env_file("ADMIN_PASSWORD")
 
-DB_PATH = ROOT / (_from_env_file("DATABASE_URL", "sqlite+aiosqlite:///./adsum.db")
-                  .rsplit("/", 1)[-1] or "adsum.db")
+def _db_path() -> str:
+    """Locate the SQLite file from DATABASE_URL.
+
+    The environment variable has to be read FIRST: CI sets it directly and
+    has no .env at all, so reading only the file resolved to a database that
+    does not exist there ("no such table: instructors").
+    """
+    url = os.getenv("DATABASE_URL") or _from_env_file(
+        "DATABASE_URL", "sqlite+aiosqlite:///./adsum.db")
+    path = url.split("///")[-1] if "///" in url else url
+    if not os.path.isabs(path):
+        cand = os.path.join(str(ROOT), path.lstrip("./"))
+        path = cand if os.path.exists(cand) else os.path.abspath(path.lstrip("./"))
+    return path
+
+
+DB_PATH = _db_path()
 
 failures: list[str] = []
 
@@ -145,7 +160,9 @@ def main() -> int:
         check("nav hides the Admin link from a plain instructor",
               '<a href="/admin">Admin</a>' not in rr.text)
 
-        host = con.execute("SELECT d2l_host FROM institutions WHERE id=1").fetchone()[0]
+        row = con.execute("SELECT d2l_host FROM institutions "
+                          "ORDER BY id LIMIT 1").fetchone()
+        host = row[0] if row else None
         check("refused POST did not alter the D2L host",
               host != "evil.example.com", str(host))
         still = con.execute("SELECT is_admin, is_active FROM instructors WHERE id=?",
