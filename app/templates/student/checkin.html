@@ -58,6 +58,16 @@
                 📍 Location is required to check in. Allow location access, then tap Check In again.
             </p>
         </form>
+            {% elif resumed_course %}
+            <div style="background:#d1e7dd;border:1px solid #0f5132;border-radius:8px;padding:1rem;text-align:center;">
+                <strong>You're signed in.</strong><br>
+                Scan the QR code on screen once more to check in to
+                <strong>{{ resumed_course.name }}</strong>.
+            </div>
+            <p class="text-muted small text-center" style="margin-top:0.75rem;">
+                The code changes every few seconds, so the one you scanned before
+                you signed in has already expired. This second scan is the last step.
+            </p>
             {% else %}
             <p class="text-muted small">You're all set. Scan the QR code shown in class to check in.</p>
         </div>
@@ -66,8 +76,8 @@
                 <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:1rem;margin-bottom:1rem;text-align:center;">
                     <strong>First time?</strong><br>
                     {% if d2l_course_url %}
-                    1. Click <a href="{{ d2l_course_url }}" target="_blank" style="font-weight:bold;color:#0d6efd;">Launch Adsum from D2L</a> (opens in new tab)<br>
-                    2. Then come back and scan the QR
+                    1. Tap <strong>Sign in with D2L</strong> below<br>
+                    2. Sign in if asked, then scan the QR code again
                     {% else %}
                     1. Open <strong>D2L on your phone</strong><br>
                     2. Go to this course → Content → <strong>Adsum</strong><br>
@@ -75,8 +85,10 @@
                     {% endif %}
                 </div>
                 {% if d2l_course_url %}
-                <a href="{{ d2l_course_url }}" target="_blank" class="btn btn-primary btn-block btn-lg" style="margin-top:0.5rem;">
-                    🚀 Launch from D2L
+                <!-- Same tab deliberately: opening D2L in a new tab leaves the
+                     student on a page whose token expires while they sign in. -->
+                <a href="{{ d2l_course_url }}" class="btn btn-primary btn-block btn-lg" style="margin-top:0.5rem;">
+                    Sign in with D2L
                 </a>
                 {% else %}
                 <p class="text-center text-muted">Scan the QR code, then tap "Check In" below.</p>

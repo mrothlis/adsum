@@ -27,6 +27,9 @@ from app.qr import verify_token
 
 router = APIRouter(prefix="/student", tags=["student"])
 
+# Survives the round trip to D2L's login and back; holds only a session id.
+PENDING_SESSION_COOKIE = "adsum_pending_session"
+
 
 # ─── Student check-in ─────────────────────────────────────────
 
@@ -45,6 +48,7 @@ async def checkin_page(
     identified_student = None
     d2l_course_url = None
     geofence_required = False
+    resumed_course = None
 
     if user and user.get("role") == "student":
         student = await db.get(Student, user["student_id"])
@@ -53,6 +57,20 @@ async def checkin_page(
 
     # Build the D2L course URL for the "Launch from D2L" button.
     valid, session_id, _ = verify_token(token)
+
+    # Returning from D2L. A student who scans before signing in is sent to D2L
+    # to authenticate, which takes far longer than a token stays valid, so the
+    # token they arrived with is always dead by the time they come back. We
+    # remember the class they were trying to join instead, and tell them
+    # exactly what to do rather than failing at them. A fresh scan is still
+    # required -- that is the whole point of the rotating code.
+    if identified_student and not valid:
+        pending = request.cookies.get(PENDING_SESSION_COOKIE)
+        if pending and pending.isdigit():
+            pending_session = await db.get(Session, int(pending))
+            if pending_session and pending_session.ended_at is None:
+                resumed_course = await db.get(Course, pending_session.course_id)
+
     if valid:
         session = await db.get(Session, session_id)
         if session:
@@ -74,12 +92,25 @@ async def checkin_page(
                             f"/d2l/lms/content/main.d2l?ou={course.d2l_org_unit_id}"
                         )
 
-    return templates.TemplateResponse(request, "student/checkin.html", {
+    response = templates.TemplateResponse(request, "student/checkin.html", {
         "token": token,
         "identified_student": identified_student,
         "d2l_course_url": d2l_course_url,
         "geofence_required": geofence_required,
+        "resumed_course": resumed_course,
     })
+
+    if valid and not identified_student:
+        # About to send them to D2L to sign in; remember the class so the trip
+        # back is not a dead end.
+        response.set_cookie(
+            PENDING_SESSION_COOKIE, str(session_id),
+            max_age=900, httponly=True, samesite="lax",
+            secure=request.url.scheme == "https",
+        )
+    elif resumed_course is not None:
+        response.delete_cookie(PENDING_SESSION_COOKIE)
+    return response
 
 
 @router.post("/checkin", response_class=HTMLResponse)
