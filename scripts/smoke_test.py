@@ -154,9 +154,13 @@ def main():
                          (COURSE_ID,)).fetchone()
     _db2.close()
     if _deep and _deep[0]:
-        check("anon page has Launch-from-D2L", "Launch from D2L" in r.text)
+        # The unidentified visitor must be offered a way to sign in, and the
+        # class they were joining must be remembered for the trip back.
+        check("anon page offers D2L sign-in", "Sign in with D2L" in r.text)
+        check("pending-session cookie set for the D2L round trip",
+              "adsum_pending_session" in r.cookies)
     else:
-        print("SKIP  anon page has Launch-from-D2L — no deep link configured on this course")
+        print("SKIP  anon page D2L sign-in — no deep link configured on this course")
 
     # 7. forged student LTI cookie for whoever is actually enrolled.
     # Don't hardcode an id -- rosters change, and a removed student made this fail spuriously.

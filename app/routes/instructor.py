@@ -601,15 +601,19 @@ async def save_course_settings(
     request: Request,
     course_id: int,
     db: AsyncSession = Depends(get_db),
-    name: str = Form(""),
-    course_code: str = Form(""),
-    d2l_org_unit_id: str = Form(""),
-    d2l_attendance_checkin_url: str = Form(""),
+    # Default None, not "": it lets us tell "the form did not include this
+    # field" from "the user cleared it on purpose". With "" the two are
+    # indistinguishable and any partial POST silently erases course identity
+    # -- which is how the D2L deep link was wiped by an unrelated test.
+    name: Optional[str] = Form(None),
+    course_code: Optional[str] = Form(None),
+    d2l_org_unit_id: Optional[str] = Form(None),
+    d2l_attendance_checkin_url: Optional[str] = Form(None),
     geofence_lat: Optional[float] = Form(None),
     geofence_lon: Optional[float] = Form(None),
-    geofence_radius_m: float = Form(75.0),
+    geofence_radius_m: Optional[float] = Form(None),
     geofence_enabled: bool = Form(False),
-    allowed_ip_ranges: str = Form(""),
+    allowed_ip_ranges: Optional[str] = Form(None),
     d2l_host: str = Form(""),
     lti_consumer_key: str = Form(""),
     lti_consumer_secret: str = Form(""),
@@ -622,19 +626,27 @@ async def save_course_settings(
     if not course:
         return HTMLResponse("Not found", status_code=404)
 
-    # Course details. Name is required, so ignore a blank submission rather
-    # than wiping the course's name.
-    if name.strip():
+    # Course details. A field absent from the POST is left alone; a field
+    # present but empty is an explicit clear. Name is required either way, so
+    # a blank name never wipes the course's name.
+    if name is not None and name.strip():
         course.name = name.strip()
-    course.course_code = course_code.strip() or None
-    course.d2l_org_unit_id = d2l_org_unit_id.strip() or None
-    course.d2l_attendance_checkin_url = d2l_attendance_checkin_url.strip() or None
+    if course_code is not None:
+        course.course_code = course_code.strip() or None
+    if d2l_org_unit_id is not None:
+        course.d2l_org_unit_id = d2l_org_unit_id.strip() or None
+    if d2l_attendance_checkin_url is not None:
+        course.d2l_attendance_checkin_url = d2l_attendance_checkin_url.strip() or None
 
+    # The geofence block always posts together, and the checkbox is absent
+    # when unticked, so these are applied as submitted.
     course.geofence_lat = geofence_lat
     course.geofence_lon = geofence_lon
-    course.geofence_radius_m = geofence_radius_m
+    if geofence_radius_m is not None:
+        course.geofence_radius_m = geofence_radius_m
     course.geofence_enabled = geofence_enabled
-    course.allowed_ip_ranges = allowed_ip_ranges or None
+    if allowed_ip_ranges is not None:
+        course.allowed_ip_ranges = allowed_ip_ranges.strip() or None
 
     # Institution-level LTI settings are shared by every course and every
     # instructor, so only an admin may change them. Without this, one
