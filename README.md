@@ -445,4 +445,4 @@ for the map picker, Chart.js for trends, both instructor-only.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Michael Rothlisberger.
+MIT — see [LICENSE](LICENSE) for the full text and copyright holder.
