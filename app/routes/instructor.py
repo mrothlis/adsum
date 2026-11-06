@@ -6,6 +6,7 @@ import csv
 import datetime as dt
 import io
 from typing import Optional
+from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -25,6 +26,7 @@ from app.models import (
 )
 from app.main import templates, _to_local
 from app.scoring import score, PRESENT_STATUSES, EXCUSED_STATUS
+from app import ledger
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
@@ -737,6 +739,120 @@ async def _excused_count(db: AsyncSession, student_id: int, session_ids: list) -
         ))).scalar() or 0
 
 
+@router.post("/course/{course_id}/restore-from-d2l")
+async def restore_from_d2l(request: Request, course_id: int,
+                           db: AsyncSession = Depends(get_db),
+                           grades_file: UploadFile = File(...)):
+    """Rebuild this course's attendance from a D2L grade export.
+
+    This is what lets D2L be the system of record. The Attendance Detail text
+    column carries every class date and status, so a grade export is a
+    complete backup. Upload it here and the sessions and attendance records
+    are recreated.
+
+    Restoring is additive and idempotent: a session is matched to an existing
+    one on the same date, and a student's record for a session is only
+    created if it is missing. Running it twice changes nothing, and it never
+    deletes what the app already has.
+    """
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    course = await db.get(Course, course_id)
+    if not course:
+        return HTMLResponse("Not found", status_code=404)
+
+    raw = (await grades_file.read()).decode("utf-8-sig", errors="replace")
+    reader = csv.reader(io.StringIO(raw))
+    headers = next(reader, None)
+    if not headers:
+        return RedirectResponse(
+            f"/instructor/course/{course_id}?error=That+file+is+empty.", status_code=302)
+
+    detail_idx = ledger.find_detail_column(headers)
+    user_idx = ledger.find_user_column(headers)
+    if detail_idx is None or user_idx is None:
+        return RedirectResponse(
+            f"/instructor/course/{course_id}?error=No+%22Attendance+Detail%22+column+found."
+            "+In+D2L+use+Grades+%E2%86%92+Export+and+tick+Attendance+Detail.",
+            status_code=302)
+
+    # Existing sessions by local date, so a restore lines up with reality.
+    existing = (await db.execute(
+        select(Session).where(Session.course_id == course_id))).scalars().all()
+    by_date = {}
+    for s in existing:
+        if s.started_at:
+            by_date[_to_local(s.started_at).date()] = s
+
+    students = (await db.execute(
+        select(Student).join(CourseEnrollment).where(
+            CourseEnrollment.course_id == course_id,
+            CourseEnrollment.role == "student"))).scalars().all()
+    by_username = {}
+    for st in students:
+        for key in (st.d2l_username, st.student_id_number,
+                    (st.email or "").split("@")[0] or None):
+            if key:
+                by_username.setdefault(key.strip().lower(), st)
+
+    sessions_made = records_made = 0
+    unknown_users = []
+
+    for row in reader:
+        if len(row) <= max(detail_idx, user_idx):
+            continue
+        uname = (row[user_idx] or "").strip().strip('"')
+        entries = ledger.parse(row[detail_idx] or "")
+        if not entries:
+            continue
+        student = by_username.get(uname.lower())
+        if not student:
+            if uname:
+                unknown_users.append(uname)
+            continue
+
+        for day, status in entries:
+            session = by_date.get(day)
+            if session is None:
+                # Noon local, converted back to the naive UTC the app stores.
+                local_noon = dt.datetime(day.year, day.month, day.day, 12, 0)
+                offset = settings.DISPLAY_UTC_OFFSET_HOURS
+                try:
+                    from zoneinfo import ZoneInfo
+                    tz = ZoneInfo(settings.DISPLAY_TIMEZONE)
+                    started = local_noon.replace(tzinfo=tz).astimezone(
+                        dt.timezone.utc).replace(tzinfo=None)
+                except Exception:
+                    started = local_noon - dt.timedelta(hours=offset)
+                session = Session(course_id=course_id, started_at=started,
+                                  ended_at=started + dt.timedelta(hours=1))
+                db.add(session)
+                await db.flush()
+                by_date[day] = session
+                sessions_made += 1
+
+            if status is None:      # absent: represented by the lack of a record
+                continue
+            dupe = (await db.execute(select(AttendanceRecord).where(
+                AttendanceRecord.session_id == session.id,
+                AttendanceRecord.student_id == student.id))).scalar_one_or_none()
+            if dupe:
+                continue
+            db.add(AttendanceRecord(session_id=session.id, student_id=student.id,
+                                    token_used="restored", status=status))
+            records_made += 1
+
+    await db.commit()
+
+    msg = f"Restored from D2L: {sessions_made} sessions and {records_made} attendance records added."
+    if unknown_users:
+        shown = ", ".join(sorted(set(unknown_users))[:5])
+        msg += f" Skipped {len(set(unknown_users))} unmatched username(s): {shown}."
+    return RedirectResponse(
+        f"/instructor/course/{course_id}?notice={quote_plus(msg)}", status_code=302)
+
+
 # ─── D2L Integration ────────────────────────────────────────
 
 def _match_column(headers: list[str], *candidates: str) -> int | None:
@@ -890,16 +1006,16 @@ def _detail_ledger(student, sessions, statuses: dict, sc) -> str:
     This is what lets D2L hold the full per-date record in a single column
     instead of one numeric column per meeting.
     """
-    marks = {"present": "P", "late": "L", "excused": "E"}
-    parts = []
+    entries = []
     for s in sessions:
-        day = _to_local(s.started_at).strftime("%m/%d") if s.started_at else "??/??"
-        parts.append(f"{day}:{marks.get(statuses.get(s.id), 'A')}")
+        if not s.started_at:
+            continue
+        entries.append((_to_local(s.started_at), statuses.get(s.id)))
     summary = (f"{sc.attended}/{sc.counted_total} present, "
                f"{sc.unexcused} unexcused ({settings.ALLOWED_UNEXCUSED_ABSENCES} allowed)")
     if sc.excused:
         summary += f", {sc.excused} excused"
-    return f"{summary} | P=present L=late A=absent E=excused | " + " ".join(parts)
+    return ledger.build(entries, summary)
 
 
 @router.get("/course/{course_id}/export-d2l")
@@ -931,6 +1047,23 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
 
     total_sessions = len(sessions)
     session_ids = [s.id for s in sessions]
+
+    # Refuse to hand D2L a file that can only destroy the record.
+    # If this course has no sessions, every student would import as 0 and the
+    # Attendance Detail ledger would be blanked -- wiping history that D2L is
+    # holding. This is the failure mode after a reset or a lost database, so
+    # it is blocked outright rather than warned about.
+    if total_sessions == 0:
+        return HTMLResponse(
+            "<h2>Nothing to export</h2>"
+            "<p>This course has no attendance sessions, so an export would "
+            "overwrite the D2L gradebook with zeros and erase the attendance "
+            "history stored there.</p>"
+            "<p>If you expected sessions here, the app's data was reset or lost. "
+            "Use <strong>Restore from D2L</strong> on the course page to rebuild "
+            "it from the gradebook before exporting.</p>"
+            f'<p><a href="/instructor/course/{course_id}">Back to course</a></p>',
+            status_code=409)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
