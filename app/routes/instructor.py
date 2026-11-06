@@ -637,13 +637,19 @@ async def save_course_settings(
     if course.institution_id and await is_admin(db, user):
         institution = await db.get(Institution, course.institution_id)
         if institution:
-            institution.d2l_host = d2l_host or None
-            institution.lti_consumer_key = lti_consumer_key or None
-            # Auto-generate secret if key is set but secret is blank
-            if lti_consumer_key and not lti_consumer_secret:
+            # Blank means "leave it alone", never "erase it". Submitting the
+            # form with empty LTI fields used to null the live credentials and
+            # silently break every D2L launch on the install.
+            if d2l_host.strip():
+                institution.d2l_host = d2l_host.strip()
+            if lti_consumer_key.strip():
+                institution.lti_consumer_key = lti_consumer_key.strip()
+            if lti_consumer_secret.strip():
+                institution.lti_consumer_secret = lti_consumer_secret.strip()
+            elif institution.lti_consumer_key and not institution.lti_consumer_secret:
+                # Key set but no secret yet: generate one so LTI can work.
                 import secrets as _secrets
-                lti_consumer_secret = _secrets.token_urlsafe(32)
-            institution.lti_consumer_secret = lti_consumer_secret or None
+                institution.lti_consumer_secret = _secrets.token_urlsafe(32)
 
     await db.commit()
     return RedirectResponse(f"/instructor/course/{course_id}/settings", status_code=302)
