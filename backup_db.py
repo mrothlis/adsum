@@ -1,33 +1,78 @@
-"""Back up csu_checkin_v2.db using SQLite's online backup API. Keeps the last 14.
+"""Back up the Adsum database using SQLite's online backup API.
 
-Run manually or by the scheduled task 'csu-checkin-backup' (daily).
+Safe to run while the app is serving: the online backup API takes a
+consistent snapshot without locking writers out. Keeps the most recent
+BACKUP_KEEP copies in backups/.
+
+Run manually, or on a schedule (cron / Task Scheduler) -- see docs/INSTALL.md.
+
+The database location comes from DATABASE_URL, so this works on any install
+rather than only the one it was written on.
 """
 import datetime
 import glob
 import os
 import sqlite3
+import sys
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(BASE, "csu_checkin_v2.db")
 DEST_DIR = os.path.join(BASE, "backups")
-KEEP = 14
+KEEP = int(os.getenv("BACKUP_KEEP", "14"))
+
+
+def _from_env_file(key: str, default: str = "") -> str:
+    """Read a key from .env without requiring python-dotenv."""
+    try:
+        with open(os.path.join(BASE, ".env"), encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip().startswith(key + "="):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return default
+
+
+def database_path() -> str:
+    """Resolve the SQLite file from DATABASE_URL."""
+    url = os.getenv("DATABASE_URL") or _from_env_file(
+        "DATABASE_URL", "sqlite+aiosqlite:///./adsum.db")
+    if not url.startswith("sqlite"):
+        raise SystemExit(
+            f"This script only backs up SQLite. DATABASE_URL is {url.split('://')[0]}://..., "
+            "so use that engine's own backup tool (for PostgreSQL, pg_dump)."
+        )
+    path = url.split("///")[-1] if "///" in url else url
+    if not os.path.isabs(path):
+        path = os.path.join(BASE, path.lstrip("./"))
+    return os.path.normpath(path)
 
 
 def main() -> None:
+    src_path = database_path()
+    if not os.path.exists(src_path):
+        raise SystemExit(f"No database at {src_path}. Start the app once to create it.")
+
     os.makedirs(DEST_DIR, exist_ok=True)
+    # Name backups after the database itself, so several installs can share a
+    # directory and the pruning glob below never deletes a sibling's copies.
+    stem = os.path.splitext(os.path.basename(src_path))[0]
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest = os.path.join(DEST_DIR, f"csu_checkin-{stamp}.db")
-    src = sqlite3.connect(SRC)
+    dest = os.path.join(DEST_DIR, f"{stem}-{stamp}.db")
+
+    src = sqlite3.connect(src_path)
     dst = sqlite3.connect(dest)
-    with dst:
-        src.backup(dst)
-    dst.close()
-    src.close()
-    backups = sorted(glob.glob(os.path.join(DEST_DIR, "csu_checkin-*.db")))
+    try:
+        with dst:
+            src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
+
+    backups = sorted(glob.glob(os.path.join(DEST_DIR, f"{stem}-*.db")))
     for old in backups[:-KEEP]:
         os.remove(old)
     print(f"backed up to {dest} ({len(backups[-KEEP:])} kept)")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
