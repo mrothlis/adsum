@@ -13,6 +13,10 @@ qrcode[pil]==8.2
 pillow==12.3.0
 sse-starlette==3.6.0
 
+# Schema migrations. Required at runtime: the app stamps a newly created
+# database at the current head so `alembic upgrade head` stays meaningful.
+alembic==1.20.1
+
 # IANA timezone database. Windows ships no system tz data, so zoneinfo
 # (used to show check-in times in local time) fails without this.
 tzdata==2026.6
