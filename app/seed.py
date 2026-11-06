@@ -71,10 +71,16 @@ async def seed_demo_data() -> None:
             ("Jack Robinson", "jrobinson", "900100010"),
         ]
         for name, uname, sid in student_data:
+            # The demo roster stands in for one imported from a D2L class list,
+            # so it carries the D2L username and is marked verified. Without
+            # those the gradebook export has no key to match on and every row
+            # is flagged as not-in-roster.
             s = Student(
                 name=name,
                 email=f"{uname}@students.example.edu",
                 student_id_number=sid,
+                d2l_username=uname,
+                d2l_verified=True,
             )
             db.add(s)
             await db.flush()

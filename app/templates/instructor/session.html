@@ -53,6 +53,14 @@
             <div class="progress-fill" id="progress-fill" style="width: {{ pct|int }}%"></div>
         </div>
 
+        <!-- Shown only when at least one row carries the unverified marker;
+             a title= tooltip alone is invisible on touch devices. -->
+        <p id="unverified-note" class="text-muted" style="font-size:0.85rem;margin:0 0 0.5rem;
+           {% if records | selectattr('student') | rejectattr('student.d2l_verified') | list | length == 0 %}display:none;{% endif %}">
+            ⚠️ Not matched to the D2L roster. Import the class list, or check the
+            student's D2L username, before exporting grades.
+        </p>
+
         <table class="table" id="attendance-table">
             <thead>
                 <tr>
@@ -161,10 +169,13 @@ function connectSSE() {
         const pct = data.enrolled > 0 ? Math.round(data.count / data.enrolled * 100) : 0;
         document.getElementById('progress-fill').style.width = pct + '%';
 
+        const note = document.getElementById('unverified-note');
+        if (note) note.style.display = data.records.some(r => !r.d2l_verified) ? '' : 'none';
+
         const tbody = document.getElementById('attendance-body');
         tbody.innerHTML = data.records.map(r => `
             <tr>
-                <td>${r.student_name}${!r.d2l_verified ? ' <span title="Not in D2L roster" style="color:#f59e0b;">⚠️</span>' : ''}</td>
+                <td>${r.student_name}${!r.d2l_verified ? ' <span title="Not in D2L roster" style="color:#f59e0b;">\u26a0\ufe0f</span>' : ''}</td>
                 <td>${r.student_id}</td>
                 <td>${r.checked_in_at}</td>
                 <td><span class="badge ${r.status === 'present' ? 'badge-success' : r.status === 'late' ? 'badge-warning' : 'badge-danger'}">${r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span></td>
