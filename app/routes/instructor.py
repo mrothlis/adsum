@@ -880,9 +880,36 @@ async def import_d2l_roster(
     )
 
 
+def _detail_ledger(student, sessions, statuses: dict, sc) -> str:
+    """One-cell, human-readable record of every class meeting.
+
+    Example:
+      "9/11 present, 2 unexcused (3 allowed) | P=present L=late A=absent E=excused
+       | 09/03:P 09/05:A 09/10:E ..."
+
+    This is what lets D2L hold the full per-date record in a single column
+    instead of one numeric column per meeting.
+    """
+    marks = {"present": "P", "late": "L", "excused": "E"}
+    parts = []
+    for s in sessions:
+        day = _to_local(s.started_at).strftime("%m/%d") if s.started_at else "??/??"
+        parts.append(f"{day}:{marks.get(statuses.get(s.id), 'A')}")
+    summary = (f"{sc.attended}/{sc.counted_total} present, "
+               f"{sc.unexcused} unexcused ({settings.ALLOWED_UNEXCUSED_ABSENCES} allowed)")
+    if sc.excused:
+        summary += f", {sc.excused} excused"
+    return f"{summary} | P=present L=late A=absent E=excused | " + " ".join(parts)
+
+
 @router.get("/course/{course_id}/export-d2l")
-async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depends(get_db)):
-    """Export attendance as a D2L Brightspace grade import CSV."""
+async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depends(get_db),
+                     detail: bool = True):
+    """Export attendance as a D2L Brightspace grade import CSV.
+
+    detail=1 adds a Text grade item carrying the full per-date ledger, so the
+    gradebook holds the whole record in one extra column.
+    """
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
@@ -907,7 +934,22 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["OrgDefinedId", "Username", "Attendance Points Grade", "End-of-Line Indicator"])
+    header = ["OrgDefinedId", "Username", "Attendance Points Grade"]
+    if detail:
+        # A D2L *Text* grade item. It holds a string, is not counted in the
+        # final grade, and lets one column carry the whole per-date ledger --
+        # so D2L keeps the full record without 45 numeric columns.
+        header.append("Attendance Detail Text Grade")
+    header.append("End-of-Line Indicator")
+    writer.writerow(header)
+
+    # Per-session status lookup, built once rather than per student.
+    status_by_student: dict[int, dict[int, str]] = {}
+    if detail and session_ids:
+        recs = (await db.execute(select(AttendanceRecord).where(
+            AttendanceRecord.session_id.in_(session_ids)))).scalars().all()
+        for r in recs:
+            status_by_student.setdefault(r.student_id, {})[r.session_id] = r.status
 
     for student in students:
         if session_ids:
@@ -921,18 +963,24 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
             attended = 0
 
         _exc = await _excused_count(db, student.id, session_ids)
-        pct = score(total_sessions, attended, _exc,
-                    settings.ALLOWED_UNEXCUSED_ABSENCES).pct
+        sc = score(total_sessions, attended, _exc,
+                   settings.ALLOWED_UNEXCUSED_ABSENCES)
+        pct = sc.pct
 
         # OrgDefinedId: prefer d2l_user_id, fall back to student_id_number
         org_id = student.d2l_user_id or student.student_id_number
         # Username: prefer d2l_username, then email prefix
         username = student.d2l_username or (student.email.split("@")[0] if student.email else "")
 
-        writer.writerow([org_id, username, pct, "#"])
+        row = [org_id, username, pct]
+        if detail:
+            row.append(_detail_ledger(student, sessions, status_by_student.get(student.id, {}), sc))
+        row.append("#")
+        writer.writerow(row)
 
     buf.seek(0)
-    filename = f"{course.course_code or 'course'}_attendance_d2l.csv"
+    suffix = "_detail" if detail else ""
+    filename = f"{course.course_code or 'course'}_attendance_d2l{suffix}.csv"
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="text/csv",

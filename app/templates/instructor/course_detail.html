@@ -49,6 +49,8 @@
             <button type="submit" class="btn btn-primary">📤 Import Roster</button>
         </form>
         <a href="/instructor/course/{{ course.id }}/export-d2l" class="btn btn-outline">📥 Export for D2L Gradebook</a>
+        <a href="/instructor/course/{{ course.id }}/export-d2l?detail=0" class="btn btn-outline"
+           title="Grade only, without the per-date Attendance Detail column">Grade only</a>
     </div>
     <details style="margin-top:0.75rem;font-size:0.85rem;" class="text-muted">
         <summary style="cursor:pointer;">How to put this into the D2L gradebook</summary>
@@ -56,11 +58,16 @@
             <li>Click <strong>Export for D2L Gradebook</strong> above and save the CSV.</li>
             <li>In D2L: <strong>Grades → Import</strong>, choose the file, and tick
                 <em>“Create new grade item when an unrecognized item is referenced”</em>.</li>
-            <li>On <strong>New Grade Item Properties</strong>, set <strong>Maximum Points to 100</strong>.
-                D2L defaults this to 10, which would show every student as 1000%.</li>
+            <li>On <strong>New Grade Item Properties</strong>, set <strong>Maximum Points to 100</strong>
+                for <em>Attendance</em>. D2L defaults this to 10, which would show every student as 1000%.
+                <em>Attendance Detail</em> is a Text item and needs no properties.</li>
             <li>Continue through the preview, then click <strong>Import</strong>.</li>
         </ol>
         <p style="margin:0.5rem 0 0 0;">
+            The export carries two columns: <strong>Attendance</strong>, the numeric grade, and
+            <strong>Attendance Detail</strong>, a text column holding every class date and its
+            status in one cell — so D2L keeps the full record without one column per meeting.
+            Text items are not counted in the final grade.
             Scores are the percentage of sessions attended, after the first
             {{ allowed_absences }} unexcused absences are forgiven. Excused absences are
             dropped from the count entirely. Anyone not on the D2L classlist is skipped
