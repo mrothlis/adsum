@@ -52,6 +52,11 @@ if not PW:
     PW = _from_env_file("ADMIN_PASSWORD")
 assert PW, "Set ADMIN_PASSWORD (env var or .env), or provide CREDENTIALS.txt"
 
+# The course and students are resolved at runtime, not hard-coded: this script
+# must keep working on any install and after demo data is removed.
+COURSE_ID = int(os.getenv("TEST_COURSE_ID", "0"))
+
+
 DB = "csu_checkin_v2.db"
 RESULTS = []
 
@@ -103,7 +108,21 @@ def main():
     check("other IP unaffected", r.status_code == 401)
 
     # 5. sandbox course (course 2) — create fresh session
-    r = s.post(BASE + "/instructor/course/2/start-session", cookies=icook, allow_redirects=False)
+    global COURSE_ID
+    _db = get_db()
+    if not COURSE_ID:
+        _c = _db.execute("""SELECT ce.course_id FROM course_enrollments ce
+                            WHERE ce.student_id IS NOT NULL
+                            GROUP BY ce.course_id ORDER BY COUNT(*) DESC LIMIT 1""").fetchone()
+        assert _c, "No course with enrolled students; set TEST_COURSE_ID."
+        COURSE_ID = _c[0]
+    _students = [r[0] for r in _db.execute(
+        "SELECT student_id FROM course_enrollments WHERE course_id=? AND student_id IS NOT NULL ORDER BY student_id",
+        (COURSE_ID,))]
+    assert _students, f"Course {COURSE_ID} has no enrolled students."
+    manual_student_id = _students[-1]
+
+    r = s.post(BASE + f"/instructor/course/{COURSE_ID}/start-session", cookies=icook, allow_redirects=False)
     sid = r.headers.get("location", "").rstrip("/").split("/")[-1]
     check("start session on sandbox", r.status_code == 302 and sid.isdigit())
 
@@ -158,16 +177,16 @@ def main():
     r = requests.post(BASE + "/student/checkin", data=checkin_data, cookies=scook)
     check("duplicate → 'already checked in'", "already checked in" in r.text)
 
-    # 11. manual mark-present (course 1, student 3)
-    r = s.post(BASE + "/instructor/course/1/start-session", cookies=icook, allow_redirects=False)
+    # 11. manual mark-present, on the same course using a real enrolled student
+    r = s.post(BASE + f"/instructor/course/{COURSE_ID}/start-session", cookies=icook, allow_redirects=False)
     sid1 = r.headers.get("location", "").rstrip("/").split("/")[-1]
     r = s.post(f"{BASE}/instructor/session/{sid1}/mark-present",
-               data={"student_id": "3"}, cookies=icook, allow_redirects=False)
-    rec = get_db().execute("SELECT status, token_used FROM attendance_records WHERE session_id=? AND student_id=3", (sid1,)).fetchone()
+               data={"student_id": str(manual_student_id)}, cookies=icook, allow_redirects=False)
+    rec = get_db().execute("SELECT status, token_used FROM attendance_records WHERE session_id=? AND student_id=?", (sid1, manual_student_id)).fetchone()
     check("mark-present writes manual record", rec == ("present", "manual"))
 
     # 12. Export for D2L Gradebook
-    r = s.get(BASE + "/instructor/course/2/export-d2l", cookies=icook)
+    r = s.get(BASE + f"/instructor/course/{COURSE_ID}/export-d2l", cookies=icook)
     check("export-d2l CSV downloads", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
 
     # 13. Stop test sessions (leave records in DB; test data is harmless)
@@ -192,7 +211,7 @@ def main():
 
     # 14. Optional: reset-data (only if --reset flag)
     if RUN_RESET:
-        r = s.post(BASE + "/instructor/course/1/reset-data", cookies=icook, allow_redirects=False)
+        r = s.post(BASE + f"/instructor/course/{COURSE_ID}/reset-data", cookies=icook, allow_redirects=False)
         check("reset-data redirects", r.status_code == 302 and "reset=1" in r.headers.get("location", ""))
         left = get_db().execute("SELECT COUNT(*) FROM sessions WHERE course_id=1").fetchone()[0]
         check("reset wiped course 1 sessions", left == 0)
