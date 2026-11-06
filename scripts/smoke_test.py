@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Consolidated smoke test for Attendance Check-In.
+"""Consolidated smoke test for Adsum.
 
 Reads admin credentials from CREDENTIALS.txt (gitignored) and runs a safe,
 non-destructive E2E check against the target BASE_URL.
@@ -96,8 +96,8 @@ def main():
     r = s.post(BASE + "/instructor/login",
                data={"email": EMAIL, "password": PW},
                allow_redirects=False)
-    icook = {"checkin_session": r.cookies.get("checkin_session")}
-    check("admin login with new password", r.status_code == 302 and icook["checkin_session"])
+    icook = {"adsum_session": r.cookies.get("adsum_session")}
+    check("admin login with new password", r.status_code == 302 and icook["adsum_session"])
 
     # 3. old password rejected
     r = requests.post(BASE + "/instructor/login",
@@ -172,7 +172,7 @@ def main():
         raise SystemExit(f"smoke test needs at least one student enrolled in course {COURSE_ID}")
     test_student_id, test_student_name = _row
     print(f"   (using enrolled student {test_student_id}: {test_student_name})")
-    scook = {"checkin_session": create_session_token({"role": "student", "student_id": test_student_id,
+    scook = {"adsum_session": create_session_token({"role": "student", "student_id": test_student_id,
                                                    "name": test_student_name, "lti": True})}
 
     # 8. check-in. If the course enforces a geofence, send coordinates at its

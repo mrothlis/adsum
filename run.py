@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Attendance Check-In — Entry point."""
+"""Adsum — Entry point."""
 
 from dotenv import load_dotenv
 

@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Attendance Check-In{% endblock %}</title>
+    <title>{% block title %}Adsum{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css">
     {% block head %}{% endblock %}
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-brand">
-            <a href="/">🎓 Attendance Check-In</a>
+            <a href="/">🎓 Adsum</a>
         </div>
         <div class="nav-links">
             {% if user %}
@@ -28,7 +28,7 @@
     </main>
 
     <footer class="footer">
-        <p>Attendance Check-In &copy; {{ now().year if now is defined else "2026" }} Columbus State University</p>
+        <p>Adsum &copy; {{ now().year if now is defined else "2026" }} {{ INSTITUTION_NAME }}</p>
     </footer>
 
     <script src="/static/app.js"></script>

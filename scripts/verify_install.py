@@ -67,7 +67,8 @@ def check_no_personal_identifiers() -> None:
     exempt = {"LICENSE", "scripts/verify_install.py"}
     pattern = re.compile(
         r"rothlisberger|drrothlisberger|colstate\.view|columbusstate|"
-        r"stu_garver|young_melissa|csu_session|CSU Check-In",
+        r"stu_garver|young_melissa|csu_session|checkin_session|"
+        r"CSU Check-In|Attendance Check-In",
         re.I)
     hits = []
     for rel in tracked:

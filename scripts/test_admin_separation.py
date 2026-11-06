@@ -74,9 +74,9 @@ def _default_course_id():
 
 COURSE_ID = _default_course_id()
 
-admin = {"checkin_session": requests.post(
+admin = {"adsum_session": requests.post(
     BASE + "/instructor/login", data={"email": EMAIL, "password": PW},
-    allow_redirects=False).cookies.get("checkin_session")}
+    allow_redirects=False).cookies.get("adsum_session")}
 ck = admin
 
 fails = []
@@ -114,7 +114,7 @@ conn.execute("INSERT INTO course_enrollments (course_id,instructor_id,role) VALU
              (other_course, other_id))
 conn.commit()
 conn.close()
-other = {"checkin_session": create_session_token(
+other = {"adsum_session": create_session_token(
     {"role": "instructor", "instructor_id": other_id, "name": "Prof Colleague"})}
 print(f"second professor id={other_id}, their course id={other_course}\n")
 

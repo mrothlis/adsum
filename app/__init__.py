@@ -1,1 +1,1 @@
-# Attendance Check-In app package
+# Adsum app package

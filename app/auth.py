@@ -14,7 +14,7 @@ from app.config import settings
 
 _serializer = URLSafeTimedSerializer(settings.SECRET_KEY)
 
-COOKIE_NAME = "checkin_session"
+COOKIE_NAME = "adsum_session"
 MAX_AGE = 60 * 60 * 12  # 12 hours
 
 

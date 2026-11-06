@@ -1,4 +1,4 @@
-# Attendance Check-In
+# Adsum
 
 Classroom attendance via a rotating QR code, with results pushed into the
 D2L Brightspace gradebook.
@@ -59,8 +59,8 @@ backups, upgrades and troubleshooting — see **[docs/INSTALL.md](docs/INSTALL.m
 The short version:
 
 ```bash
-git clone <your-fork> attendance-checkin
-cd attendance-checkin
+git clone <your-fork> adsum
+cd adsum
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
@@ -81,7 +81,7 @@ No IT admin required — any instructor can do this.
 1. In the app: **Course → Settings**, note the launch URL, consumer key and
    secret.
 2. In D2L: **Content → Add Existing Activities → External Learning Tool**.
-3. Title `Attendance Check-In`, URL `https://your-host/lti/launch`, plus the
+3. Title `Adsum`, URL `https://your-host/lti/launch`, plus the
    key and secret from step 1.
 4. Tick **Open as External Resource**.
 5. Under Security Settings enable **Send system username**, **Send user

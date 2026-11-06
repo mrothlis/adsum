@@ -1,4 +1,4 @@
-# Installing Attendance Check-In
+# Installing Adsum
 
 A complete guide to running this on your own infrastructure.
 
@@ -35,8 +35,8 @@ for LTI 1.1, or any paid service.
 ### Install
 
 ```bash
-git clone https://github.com/<owner>/attendance-checkin.git
-cd attendance-checkin
+git clone https://github.com/<owner>/adsum.git
+cd adsum
 
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -84,7 +84,7 @@ cannot reach the check-in page. It must be the **public** address, including
 ```ini
 INSTITUTION_NAME=Your University
 D2L_HOST=yourschool.brightspace.com
-LTI_CONSUMER_KEY=attendance-checkin
+LTI_CONSUMER_KEY=adsum
 ```
 
 `D2L_HOST` is your Brightspace hostname. Some institutions are hosted by a
@@ -202,7 +202,7 @@ Any instructor can do this; it needs no administrator.
 2. In D2L, go to your course → **Content** → pick a module → **Add Existing
    Activities** → **External Learning Tool**.
 3. Create a new tool link:
-   - **Title**: `Attendance Check-In`
+   - **Title**: `Adsum`
    - **URL**: `https://your-host/lti/launch`
    - **Key**: your `LTI_CONSUMER_KEY`
    - **Secret**: the secret from step 1
@@ -244,18 +244,18 @@ reconcile.
 
 ### systemd (Linux)
 
-`/etc/systemd/system/attendance-checkin.service`:
+`/etc/systemd/system/adsum.service`:
 
 ```ini
 [Unit]
-Description=Attendance Check-In
+Description=Adsum
 After=network.target
 
 [Service]
 Type=simple
 User=checkin
-WorkingDirectory=/opt/attendance-checkin
-ExecStart=/opt/attendance-checkin/.venv/bin/python run.py
+WorkingDirectory=/opt/adsum
+ExecStart=/opt/adsum/.venv/bin/python run.py
 Restart=always
 RestartSec=5
 
@@ -264,8 +264,8 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable --now attendance-checkin
-sudo systemctl status attendance-checkin
+sudo systemctl enable --now adsum
+sudo systemctl status adsum
 ```
 
 ### Windows
@@ -284,7 +284,7 @@ safe while the app is running. It keeps the last 14 copies in `backups/`.
 Schedule it nightly:
 
 ```cron
-0 21 * * * cd /opt/attendance-checkin && .venv/bin/python backup_db.py
+0 21 * * * cd /opt/adsum && .venv/bin/python backup_db.py
 ```
 
 To restore: stop the app, replace the database file with a backup, start it.
@@ -349,7 +349,7 @@ they are the ones that catch a privacy regression.
 | One failed login locks out everyone | The proxy is not forwarding `X-Forwarded-For`. |
 | "Nothing to export" | The course has no sessions. This is a deliberate guard — see section 9. |
 
-Logs: `journalctl -u attendance-checkin` or
+Logs: `journalctl -u adsum` or
 `server.log` depending on how you run it.
 
 ---

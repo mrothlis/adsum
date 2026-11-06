@@ -1,6 +1,6 @@
 # Deployment Runbook (for IT)
 
-This document describes how to deploy and operate Attendance Check-In in a production environment. It assumes a Windows Server or VM.
+This document describes how to deploy and operate Adsum in a production environment. It assumes a Windows Server or VM.
 
 For a platform-neutral install guide, see [INSTALL.md](INSTALL.md); this
 document covers the Windows specifics only.
@@ -114,7 +114,7 @@ Restart the `EI-tunnel` task after any config change.
 **No central IT registration needed.** Any instructor self-configures:
 
 1. D2L → Course → Content → Add Existing Activities → External Learning Tool
-2. Title: `Attendance Check-In`
+2. Title: `Adsum`
 3. URL: `https://your-host.example.edu/lti/launch`
 4. Consumer Key: from Settings page (default `csu-checkin`)
 5. Secret: from Settings page (auto-generated on first save)

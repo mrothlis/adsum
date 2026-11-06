@@ -78,7 +78,7 @@ async def lti_launch(request: Request, db: AsyncSession = Depends(get_db)):
     if not _verify_oauth_signature("POST", launch_url, params, institution.lti_consumer_secret, oauth_signature):
         return HTMLResponse(
             "<h2>LTI Signature Error</h2>"
-            "<p>Check that the secret in D2L matches Attendance Check-In settings, "
+            "<p>Check that the secret in D2L matches Adsum settings, "
             f"and the URL is exactly: <code>{launch_url}</code></p>",
             status_code=403)
 

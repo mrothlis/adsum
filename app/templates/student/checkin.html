@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Check In — Attendance Check-In{% endblock %}
+{% block title %}Check In — Adsum{% endblock %}
 
 {% block content %}
 <div class="checkin-container">
@@ -66,11 +66,11 @@
                 <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:1rem;margin-bottom:1rem;text-align:center;">
                     <strong>First time?</strong><br>
                     {% if d2l_course_url %}
-                    1. Click <a href="{{ d2l_course_url }}" target="_blank" style="font-weight:bold;color:#0d6efd;">Launch Attendance Check-In from D2L</a> (opens in new tab)<br>
+                    1. Click <a href="{{ d2l_course_url }}" target="_blank" style="font-weight:bold;color:#0d6efd;">Launch Adsum from D2L</a> (opens in new tab)<br>
                     2. Then come back and scan the QR
                     {% else %}
                     1. Open <strong>D2L on your phone</strong><br>
-                    2. Go to this course → Content → <strong>Attendance Check-In</strong><br>
+                    2. Go to this course → Content → <strong>Adsum</strong><br>
                     3. Then come back and scan the QR
                     {% endif %}
                 </div>

@@ -68,7 +68,7 @@ templates.env.globals["DEFAULT_GEOFENCE_LON"] = settings.DEFAULT_GEOFENCE_LON
 templates.env.globals["DEFAULT_GEOFENCE_RADIUS_M"] = settings.DEFAULT_GEOFENCE_RADIUS_M
 templates.env.globals["INSTITUTION_NAME"] = settings.INSTITUTION_NAME
 
-app = FastAPI(title="Attendance Check-In", version="0.1.0")
+app = FastAPI(title="Adsum", version="0.1.0")
 
 # Mount static files
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Settings — {{ course.name }} — Attendance Check-In{% endblock %}
+{% block title %}Settings — {{ course.name }} — Adsum{% endblock %}
 
 {% block content %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -103,7 +103,7 @@
             <h3>📋 Adding the link in your D2L course</h3>
             <ol style="line-height: 1.8;">
                 <li>In D2L: your course → <b>Content</b> → <b>Add Existing Activities</b> → <b>External Learning Tool</b></li>
-                <li>Title: <code>Attendance Check-In</code></li>
+                <li>Title: <code>Adsum</code></li>
                 <li>URL: <code>{{ base_url }}/lti/launch</code></li>
                 <li>Key and Secret: ask your administrator</li>
                 <li>Check <b>"Open as External Resource"</b></li>
@@ -138,7 +138,7 @@
             <h3>📋 D2L Setup Instructions</h3>
             <ol style="line-height: 1.8;">
                 <li>In D2L, go to your course → <b>Content</b> → <b>Add Existing Activities</b> → <b>External Learning Tool</b></li>
-                <li>Title: <code>Attendance Check-In</code></li>
+                <li>Title: <code>Adsum</code></li>
                 <li>URL: <code>{{ base_url }}/lti/launch</code></li>
                 <li>Key: <code>{{ institution.lti_consumer_key or 'csu-checkin' }}</code></li>
                 <li>Secret: <code>{{ institution.lti_consumer_secret or '(save settings first to generate)' }}</code></li>

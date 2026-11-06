@@ -22,7 +22,7 @@ class Settings:
     # one. It signs session cookies AND QR check-in tokens, so a shared or
     # guessable value lets anyone forge both.
     SECRET_KEY: str = PLACEHOLDER_SECRET
-    DATABASE_URL: str = "sqlite+aiosqlite:///./csu_checkin_v2.db"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./adsum.db"
     # Deliberately empty. A default password would ship an open admin account
     # to every install that forgot to set one.
     ADMIN_PASSWORD: str = ""
@@ -51,7 +51,7 @@ class Settings:
     # are deliberately generic so a fresh clone belongs to nobody.
     INSTITUTION_NAME: str = os.getenv("INSTITUTION_NAME", "Your Institution")
     D2L_HOST: str = os.getenv("D2L_HOST", "")
-    LTI_CONSUMER_KEY: str = os.getenv("LTI_CONSUMER_KEY", "attendance-checkin")
+    LTI_CONSUMER_KEY: str = os.getenv("LTI_CONSUMER_KEY", "adsum")
 
     # Free unexcused absences before attendance percentage is affected.
     ALLOWED_UNEXCUSED_ABSENCES: int = int(os.getenv("ALLOWED_UNEXCUSED_ABSENCES", "3"))

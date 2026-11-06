@@ -1,4 +1,4 @@
-# Attendance Check-In launcher. Windows PowerShell 5.1 compatible. Restart loop; uvicorn output to server.log.
+# Adsum launcher. Windows PowerShell 5.1 compatible. Restart loop; uvicorn output to server.log.
 # Pattern copied from C:\EI\tunnel\start.ps1. Runs uvicorn directly (no --reload, no run.py dev mode).
 $ErrorActionPreference = 'Continue'
 Set-Location -Path $PSScriptRoot

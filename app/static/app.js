@@ -1,4 +1,4 @@
-/* app.js — Global helpers for Attendance Check-In */
+/* app.js — Global helpers for Adsum */
 
 // Auto-dismiss flash messages after 5s
 document.addEventListener('DOMContentLoaded', () => {
