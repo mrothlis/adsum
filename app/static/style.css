@@ -61,6 +61,13 @@ body {
 
 /* ─── Container ────────────────────── */
 .container {
+    /* width:100% is required, not redundant. The body is a column flex
+       container, and `margin: 0 auto` on a flex item absorbs the free space
+       in the cross axis, which cancels the default stretch. Without it the
+       container collapses to fit-content, so sparse pages (dashboard,
+       analytics) rendered in a narrow strip while table-heavy pages looked
+       fine -- which is why it went unnoticed. */
+    width: 100%;
     max-width: 1100px;
     margin: 0 auto;
     padding: 2rem 1.5rem;

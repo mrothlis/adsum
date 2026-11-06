@@ -17,6 +17,24 @@ attendance grade and a complete per-date record into the gradebook.
 Built by an instructor for his own classes, and released under the MIT licence
 in case it is useful elsewhere.
 
+## Screenshots
+
+**Live session.** The instructor projects the QR code; the roster fills in as
+students scan. Anyone whose phone fails is marked present with one click.
+
+![Live session with rotating QR code and live attendance list](docs/images/session.png)
+
+**Course.** Roster, session history, attendance percentages, and the export
+that feeds the D2L gradebook.
+
+![Course page showing roster and session history](docs/images/course.png)
+
+**Analytics.** Attendance trend across the term.
+
+![Analytics page with attendance trend chart](docs/images/analytics.png)
+
+*All screenshots use the built-in demo data; no real students appear.*
+
 ## Why it exists
 
 D2L has a built-in Attendance tool, but attendance must be entered by hand,
