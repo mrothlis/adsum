@@ -24,6 +24,7 @@ from app.models import (
     Institution, Session, Student,
 )
 from app.main import templates, _to_local
+from app.scoring import score, PRESENT_STATUSES, EXCUSED_STATUS
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
@@ -180,7 +181,9 @@ async def _compute_alerts(db: AsyncSession, course: Course) -> list:
         records = (await db.execute(att_stmt)).scalars().all()
         attended_session_ids = {r.session_id for r in records}
         attended = len(attended_session_ids)
-        pct = round(attended / total_sessions * 100)
+        _exc = await _excused_count(db, student.id, session_ids)
+        pct = score(total_sessions, attended, _exc,
+                    settings.ALLOWED_UNEXCUSED_ABSENCES).pct
 
         # Consecutive absences (from most recent)
         consecutive = 0
@@ -247,8 +250,12 @@ async def course_detail(
             attended = (await db.execute(att_stmt)).scalar() or 0
         else:
             attended = 0
-        pct = round(attended / total_sessions * 100) if total_sessions else 0
-        student_stats.append({"student": s, "attended": attended, "total": total_sessions, "pct": pct})
+        _exc = await _excused_count(db, s.id, session_ids)
+        _sc = score(total_sessions, attended, _exc, settings.ALLOWED_UNEXCUSED_ABSENCES)
+        student_stats.append({"student": s, "attended": attended, "total": total_sessions,
+                              "pct": _sc.pct, "excused": _sc.excused,
+                              "unexcused": _sc.unexcused, "forgiven": _sc.forgiven,
+                              "over_limit": _sc.unexcused_over_limit})
 
     # Build import result from query params (set after redirect from import)
     import_result = None
@@ -265,6 +272,7 @@ async def course_detail(
         "sessions": sessions,
         "student_stats": student_stats,
         "import_result": import_result,
+        "allowed_absences": settings.ALLOWED_UNEXCUSED_ABSENCES,
     })
 
 
@@ -354,6 +362,37 @@ async def unmark_attendance(request: Request, session_id: int,
     await db.execute(delete(AttendanceRecord).where(and_(
         AttendanceRecord.session_id == session_id,
         AttendanceRecord.student_id == student_id)))
+    await db.commit()
+    return RedirectResponse(f"/instructor/session/{session_id}", status_code=302)
+
+
+@router.post("/session/{session_id}/mark-excused")
+async def mark_excused(request: Request, session_id: int,
+                       db: AsyncSession = Depends(get_db),
+                       student_id: int = Form(...)):
+    """Mark a student excused for this session.
+
+    An excused absence is dropped from the denominator entirely, so it neither
+    helps nor hurts, and it does not consume one of the free unexcused
+    absences. Works on ended sessions, since documentation usually arrives
+    after class.
+    """
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    session = await db.get(Session, session_id)
+    if not session:
+        return HTMLResponse("Not found", status_code=404)
+    existing = (await db.execute(select(AttendanceRecord).where(
+        AttendanceRecord.session_id == session_id,
+        AttendanceRecord.student_id == student_id,
+    ))).scalar_one_or_none()
+    if existing:
+        existing.status = EXCUSED_STATUS
+        existing.token_used = "manual"
+    else:
+        db.add(AttendanceRecord(session_id=session_id, student_id=student_id,
+                                token_used="manual", status=EXCUSED_STATUS))
     await db.commit()
     return RedirectResponse(f"/instructor/session/{session_id}", status_code=302)
 
@@ -484,13 +523,16 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
     for s in sessions:
         header.append(_to_local(s.started_at).strftime("%Y-%m-%d %H:%M") if s.started_at else "Unknown")
     header.append("Total Present")
-    header.append("Attendance %")
+    header.append("Excused")
+    header.append("Unexcused Absences")
+    header.append(f"Attendance % (first {settings.ALLOWED_UNEXCUSED_ABSENCES} unexcused forgiven)")
     writer.writerow(header)
 
     session_ids = [s.id for s in sessions]
     for student in students:
         row = [student.student_id_number, student.name]
         present_count = 0
+        excused_count = 0
         for sid in session_ids:
             rec = (await db.execute(
                 select(AttendanceRecord).where(
@@ -498,14 +540,20 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
                     AttendanceRecord.student_id == student.id,
                 )
             )).scalar_one_or_none()
-            if rec and rec.status in ("present", "late"):
+            if rec and rec.status in PRESENT_STATUSES:
                 row.append(rec.status.capitalize())
                 present_count += 1
+            elif rec and rec.status == EXCUSED_STATUS:
+                row.append("Excused")
+                excused_count += 1
             else:
                 row.append("Absent")
         row.append(str(present_count))
-        pct = round(present_count / len(sessions) * 100) if sessions else 0
-        row.append(f"{pct}%")
+        _sc = score(len(sessions), present_count, excused_count,
+                    settings.ALLOWED_UNEXCUSED_ABSENCES)
+        row.append(str(_sc.excused))
+        row.append(str(_sc.unexcused))
+        row.append(f"{_sc.pct}%")
         writer.writerow(row)
 
     buf.seek(0)
@@ -674,6 +722,19 @@ async def edit_student(request: Request, course_id: int, student_id: int,
     student.d2l_username = d2l_username.strip() or None
     await db.commit()
     return RedirectResponse(f"/instructor/course/{course_id}", status_code=302)
+
+
+
+async def _excused_count(db: AsyncSession, student_id: int, session_ids: list) -> int:
+    """How many of this course's sessions the student was excused from."""
+    if not session_ids:
+        return 0
+    return (await db.execute(
+        select(func.count(AttendanceRecord.id)).where(
+            AttendanceRecord.student_id == student_id,
+            AttendanceRecord.session_id.in_(session_ids),
+            AttendanceRecord.status == EXCUSED_STATUS,
+        ))).scalar() or 0
 
 
 # ─── D2L Integration ────────────────────────────────────────
@@ -859,7 +920,9 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
         else:
             attended = 0
 
-        pct = round(attended / total_sessions * 100) if total_sessions else 0
+        _exc = await _excused_count(db, student.id, session_ids)
+        pct = score(total_sessions, attended, _exc,
+                    settings.ALLOWED_UNEXCUSED_ABSENCES).pct
 
         # OrgDefinedId: prefer d2l_user_id, fall back to student_id_number
         org_id = student.d2l_user_id or student.student_id_number

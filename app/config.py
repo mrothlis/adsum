@@ -35,6 +35,10 @@ class Settings:
     DISPLAY_TIMEZONE: str = os.getenv("DISPLAY_TIMEZONE", "America/New_York")
     # Fallback offset used only if the IANA tz database is missing.
     DISPLAY_UTC_OFFSET_HOURS: int = int(os.getenv("DISPLAY_UTC_OFFSET_HOURS", "-5"))
+
+    # Free unexcused absences before attendance percentage is affected.
+    ALLOWED_UNEXCUSED_ABSENCES: int = int(os.getenv("ALLOWED_UNEXCUSED_ABSENCES", "3"))
+
     BASE_URL: str = "http://localhost:8000"
 
     def __post_init__(self) -> None:

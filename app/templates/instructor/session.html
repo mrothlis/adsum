@@ -70,15 +70,23 @@
                     <td>{{ r.student.student_id_number if r.student else '' }}</td>
                     <td>{{ r.checked_in_at | localtime('%H:%M:%S') }}</td>
                     <td>
-                        <span class="badge {% if r.status == 'present' %}badge-success{% elif r.status == 'late' %}badge-warning{% else %}badge-danger{% endif %}">
+                        <span class="badge {% if r.status == 'present' %}badge-success{% elif r.status == 'late' %}badge-warning{% elif r.status == 'excused' %}badge-muted{% else %}badge-danger{% endif %}">
                             {{ r.status|capitalize }}
                         </span>
                     </td>
                     {% if session.ended_at %}
                     <td>
+                        {% if r.status != 'excused' %}
+                        <form method="post" action="/instructor/session/{{ session.id }}/mark-excused"
+                              style="margin:0;display:inline;">
+                            <input type="hidden" name="student_id" value="{{ r.student_id }}">
+                            <button type="submit" class="btn btn-sm btn-outline"
+                                    title="Excused: dropped from the denominator, does not use a free absence">Excuse</button>
+                        </form>
+                        {% endif %}
                         <form method="post" action="/instructor/session/{{ session.id }}/unmark"
                               onsubmit="return confirm('Remove {{ r.student.name if r.student else 'this student' }} from this session?');"
-                              style="margin:0;">
+                              style="margin:0;display:inline;">
                             <input type="hidden" name="student_id" value="{{ r.student_id }}">
                             <button type="submit" class="btn btn-sm btn-danger">Remove</button>
                         </form>
@@ -100,6 +108,11 @@
             <button type="submit" class="btn btn-outline"
                     title="For a student whose phone or location failed, or who sorted it out after class">
                 {% if session.ended_at %}Add to this session{% else %}Mark Present{% endif %}
+            </button>
+            <button type="submit" formaction="/instructor/session/{{ session.id }}/mark-excused"
+                    class="btn btn-outline"
+                    title="Excused absence: dropped from the denominator, does not use one of the free absences">
+                Mark Excused
             </button>
         </form>
         {% endif %}

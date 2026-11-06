@@ -61,8 +61,10 @@
             <li>Continue through the preview, then click <strong>Import</strong>.</li>
         </ol>
         <p style="margin:0.5rem 0 0 0;">
-            Scores are the percentage of sessions attended. Anyone not on the D2L
-            classlist is skipped as an “unrecognized user” — that row is safe to ignore.
+            Scores are the percentage of sessions attended, after the first
+            {{ allowed_absences }} unexcused absences are forgiven. Excused absences are
+            dropped from the count entirely. Anyone not on the D2L classlist is skipped
+            as an “unrecognized user” — that row is safe to ignore.
         </p>
     </details>
 </div>
@@ -77,6 +79,7 @@
                 <th>D2L Username</th>
                 <th>D2L</th>
                 <th>Sessions Attended</th>
+                <th title="Unexcused absences used, against the allowance">Absences</th>
                 <th>Attendance %</th>
                 <th>Status</th>
                 <th></th>
@@ -115,6 +118,12 @@
                     {% endif %}
                 </td>
                 <td>{{ s.attended }} / {{ s.total }}</td>
+                <td>
+                    {{ s.unexcused }}{% if s.over_limit > 0 %}
+                    <span class="badge badge-danger" title="{{ s.over_limit }} beyond the allowance">+{{ s.over_limit }} over</span>
+                    {% endif %}
+                    {% if s.excused %}<span class="text-muted" title="Excused, not counted">({{ s.excused }} exc.)</span>{% endif %}
+                </td>
                 <td>
                     <div class="mini-progress">
                         <div class="mini-progress-fill {% if s.pct >= 90 %}bg-success{% elif s.pct >= 75 %}bg-warning{% else %}bg-danger{% endif %}"
