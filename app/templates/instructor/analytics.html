@@ -44,6 +44,9 @@
 {% endblock %}
 
 {% block scripts %}
+<!-- Loaded here, not in base.html: the student check-in page extends base,
+     and students' browsers should not call a third-party CDN. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const ctx = document.getElementById('attendanceChart').getContext('2d');

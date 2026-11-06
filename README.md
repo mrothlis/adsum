@@ -51,7 +51,12 @@ This tool captures attendance in seconds and writes it to the gradebook, which
 - A D2L Brightspace course you can add an External Learning Tool link to
 - A public HTTPS URL for the server (students' phones must reach it)
 
-## Quick start
+## Installation
+
+For a complete walkthrough — hosting options, HTTPS, running as a service,
+backups, upgrades and troubleshooting — see **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+The short version:
 
 ```bash
 git clone <your-fork> attendance-checkin
@@ -165,7 +170,8 @@ complete backup — see *Restore from D2L* on the course page.
 
 ## Deployment
 
-See [docs/DEPLOY.md](docs/DEPLOY.md). A `Dockerfile` and `docker-compose.yml`
+See [docs/INSTALL.md](docs/INSTALL.md) for the full installation guide, and
+[docs/DEPLOY.md](docs/DEPLOY.md) for notes on the original Windows setup. A `Dockerfile` and `docker-compose.yml`
 are included; the compose file mounts `./data` and `./backups` so the database
 and backups persist outside the container. SQLite is the default and is fine
 at course or department scale; point `DATABASE_URL` at PostgreSQL for anything
