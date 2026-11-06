@@ -1,23 +1,50 @@
 """Admin vs ordinary instructor separation.
 
-Verifies that a second professor cannot rewrite the shared D2L/LTI settings
-that every course on the installation depends on, and cannot read the shared
-secret, while the admin still can.
+Verifies that an ordinary instructor cannot rewrite the shared D2L/LTI
+settings every course depends on, nor read the shared secret, while an
+admin still can.
+
+Configuration (no personal details are hard-coded):
+    BASE_URL        target install, default http://127.0.0.1:8000
+    ADMIN_EMAIL     admin login
+    ADMIN_PASSWORD  admin password
+All three fall back to the values in .env, so `python scripts/test_admin_separation.py` works
+out of the box on a local checkout.
 """
-import sqlite3
+import os
 import sys
 
-import requests
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-sys.path.insert(0, ".")
 
-BASE = "https://checkin.drrothlisberger.com"
-PW = [l.split(":", 1)[1].strip() for l in open("CREDENTIALS.txt", encoding="utf-8")
-      if l.startswith("Password:")][0]
+def _from_env_file(key, default=""):
+    """Read a key from .env without requiring python-dotenv."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    try:
+        for line in open(path, encoding="utf-8"):
+            if line.strip().startswith(key + "="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return default
+
+
+BASE = os.getenv("BASE_URL") or _from_env_file("BASE_URL", "http://127.0.0.1:8000")
+EMAIL = os.getenv("ADMIN_EMAIL") or _from_env_file("ADMIN_EMAIL", "admin@example.edu")
+PW = os.getenv("ADMIN_PASSWORD") or _from_env_file("ADMIN_PASSWORD", "")
+if not PW:
+    raise SystemExit("Set ADMIN_PASSWORD (env var or .env) before running this script.")
+
+import sqlite3  # noqa: E402
+
+import requests  # noqa: E402
+
+COURSE_ID = int(os.getenv("TEST_COURSE_ID", "2"))
+
 admin = {"csu_session": requests.post(
-    BASE + "/instructor/login",
-    data={"email": "rothlisberger_michael@columbusstate.edu", "password": PW},
+    BASE + "/instructor/login", data={"email": EMAIL, "password": PW},
     allow_redirects=False).cookies.get("csu_session")}
+ck = admin
 
 fails = []
 
@@ -43,9 +70,9 @@ conn = db()
 from app.auth import hash_password, create_session_token  # noqa: E402
 
 conn.execute("INSERT OR IGNORE INTO instructors (name,email,password_hash,is_admin) VALUES (?,?,?,0)",
-             ("Prof Colleague", "colleague@columbusstate.edu", hash_password("x" * 12)))
+             ("Test Colleague", "colleague@example.edu", hash_password("x" * 12)))
 conn.commit()
-other_id = conn.execute("SELECT id FROM instructors WHERE email='colleague@columbusstate.edu'").fetchone()[0]
+other_id = conn.execute("SELECT id FROM instructors WHERE email='colleague@example.edu'").fetchone()[0]
 conn.execute("INSERT INTO courses (institution_id,name,course_code,geofence_radius_m,geofence_enabled) "
              "VALUES (1,'Colleague Course','COL1000',75.0,0)")
 conn.commit()
@@ -88,22 +115,28 @@ check("secret hidden from colleague", (original[2] or "zzz") not in h)
 check("colleague told to ask an admin", "ask your administrator" in h.lower() or "only an administrator" in h.lower())
 
 # --- the admin can still see and change it
-h = requests.get(f"{BASE}/instructor/course/2/settings", cookies=admin).text
+h = requests.get(f"{BASE}/instructor/course/{COURSE_ID}/settings", cookies=admin).text
 check("admin still sees the secret", (original[2] or "") in h)
 
-form_admin = dict(form, name="Michael Rothlisberger BUSA 2115 Sandbox", course_code="BUSA2115",
+_own = db().execute("SELECT name, course_code, d2l_org_unit_id, geofence_lat, geofence_lon, "
+                    "geofence_radius_m, geofence_enabled FROM courses WHERE id=?",
+                    (COURSE_ID,)).fetchone()
+form_admin = dict(form, name=_own[0], course_code=_own[1] or "",
                   d2l_host=original[0] or "", lti_consumer_key=original[1] or "",
                   lti_consumer_secret=original[2] or "",
-                  d2l_org_unit_id="3573358",
-                  geofence_lat="32.502237", geofence_lon="-84.938952",
-                  geofence_radius_m="250", geofence_enabled="true")
-r = requests.post(f"{BASE}/instructor/course/2/settings", data=form_admin,
+                  d2l_org_unit_id=_own[2] or "",
+                  geofence_lat="" if _own[3] is None else str(_own[3]),
+                  geofence_lon="" if _own[4] is None else str(_own[4]),
+                  geofence_radius_m=str(_own[5] or 75))
+if _own[6]:
+    form_admin["geofence_enabled"] = "true"
+r = requests.post(f"{BASE}/instructor/course/{COURSE_ID}/settings", data=form_admin,
                   cookies=admin, allow_redirects=False)
 check("admin save works", r.status_code in (302, 303), f"status={r.status_code}")
 check("institution intact after admin save", inst() == original, f"{inst()}")
 
 # --- and isolation still holds between the two courses
-r = requests.get(f"{BASE}/instructor/course/2", cookies=other, allow_redirects=False)
+r = requests.get(f"{BASE}/instructor/course/{COURSE_ID}", cookies=other, allow_redirects=False)
 check("colleague still cannot see Michael's course", r.status_code in (302, 303, 404))
 r = requests.get(f"{BASE}/instructor/course/{other_course}", cookies=admin, allow_redirects=False)
 check("Michael cannot see colleague's course either", r.status_code in (302, 303, 404),

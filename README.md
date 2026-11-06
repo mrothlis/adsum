@@ -1,172 +1,190 @@
-# CSU Check-In — Attendance tracking for higher ed
+# Attendance Check-In
 
-Self-contained Python/FastAPI web app with rotating QR codes, GPS geofencing, D2L Brightspace LTI 1.1 launch, early-alert analytics, and CSV exports for the D2L gradebook.
+Classroom attendance via a rotating QR code, with results pushed into the
+D2L Brightspace gradebook.
 
-**Production URL:** https://checkin.drrothlisberger.com
+The instructor starts a session and projects a QR code that rotates every 20
+seconds. Students scan it with their phone and are marked present. At any
+point the instructor exports a CSV that D2L imports directly, writing both an
+attendance grade and a complete per-date record into the gradebook.
 
----
+Built by an instructor for his own classes, and released under the MIT licence
+in case it is useful elsewhere.
 
-## Quick start (developer / local)
+## Why it exists
+
+D2L has a built-in Attendance tool, but attendance must be entered by hand,
+one student at a time, and there is no API or CSV import to automate it
+([D2L confirms there is no Valence API for attendance registers][d2l-api]).
+This tool captures attendance in seconds and writes it to the gradebook, which
+*is* machine-writable.
+
+[d2l-api]: https://community.d2l.com/brightspace/discussion/6519/is-there-api-support-for-attendance-registers
+
+## What it does
+
+- **Rotating QR check-in.** HMAC-SHA256 signed tokens, 20-second rotation, so
+  a screenshot shared outside the room stops working.
+- **Optional geofence.** Per course, off by default, with an interactive map
+  picker. Only distance and in/out are stored; raw GPS is discarded.
+- **Launches from D2L** via LTI 1.1, so students arrive already identified and
+  need no separate account. An instructor can set this up without IT.
+- **Writes the gradebook column.** Export a CSV, import it in D2L.
+- **Keeps the full record in D2L.** Alongside the numeric grade, a Text grade
+  item carries every class date and its status in one cell, so the gradebook
+  holds the whole history without one column per class meeting.
+- **Rebuilds itself from D2L.** Because that column is parseable, a D2L grade
+  export is a complete backup. *Restore from D2L* reconstructs the app's data
+  from it, so this app never has to be the system of record.
+- **Attendance policy built in.** Excused absences leave the denominator; the
+  first N unexcused absences are forgiven (default 3, configurable).
+- **Correct after the fact.** Add, remove or excuse a student on a session
+  that has already ended.
+- **Live attendance.** Server-sent events update the instructor's screen as
+  students check in.
+- **Early alerts.** Dashboard flags students below 75% or with 3+ consecutive
+  absences.
+
+## Requirements
+
+- Python 3.11+
+- A D2L Brightspace course you can add an External Learning Tool link to
+- A public HTTPS URL for the server (students' phones must reach it)
+
+## Quick start
 
 ```bash
-# 1. Clone and install
-git clone https://github.com/your-org/csu-checkin.git
-cd csu-checkin
-python -m venv .venv
-source .venv/bin/activate
+git clone <your-fork> attendance-checkin
+cd attendance-checkin
+python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 2. Configure — copy .env.example to .env and edit
 cp .env.example .env
-# Set SECRET_KEY, ADMIN_PASSWORD, ADMIN_EMAIL at minimum
-
-# 3. Run
+# Edit .env: SECRET_KEY, ADMIN_EMAIL, ADMIN_PASSWORD, BASE_URL, INSTITUTION_NAME
 python run.py
-# or dev mode with reload:
-python -m uvicorn app.main:app --reload
 ```
 
-Open http://localhost:8000.
+Open `http://127.0.0.1:8000` and sign in with the admin credentials from
+`.env`. On an empty database that admin account is created automatically.
 
----
+For development with auto-reload: `python -m uvicorn app.main:app --reload`.
 
-## Key features
+## Connecting D2L (LTI 1.1)
 
-| Feature | Detail |
-|---|---|
-| **Rotating QR codes** | HMAC-SHA256 signed tokens, 20-second rotation |
-| **GPS geofence** | Interactive map picker in Settings; optional enforcement with distance logging |
-| **LTI 1.1 launch** | Instructor adds tool in D2L (no IT admin) — students launch from D2L → auto-auth |
-| **Live attendance** | SSE real-time count + progress bar on instructor session page |
-| **Manual mark-present** | Dropdown on session page for students whose phones/location fail |
-| **Early alerts** | Dashboard flags students <75% attendance or 3+ consecutive absences |
-| **Export for D2L Gradebook** | One-click CSV matching Brightspace grade-import format (OrgDefinedId, Username, points, `#`) |
-| **Reset sessions** | One button on Settings to wipe all sessions/records, keep roster & settings |
-| **Nightly backups** | SQLite online backup to `backups/` (keeps 14 days); Scheduled Task at 21:00 |
-| **Health endpoint** | `/healthz` for uptime monitoring |
+No IT admin required — any instructor can do this.
 
----
+1. In the app: **Course → Settings**, note the launch URL, consumer key and
+   secret.
+2. In D2L: **Content → Add Existing Activities → External Learning Tool**.
+3. Title `Attendance Check-In`, URL `https://your-host/lti/launch`, plus the
+   key and secret from step 1.
+4. Tick **Open as External Resource**.
+5. Under Security Settings enable **Send system username**, **Send user
+   email** and **Send user name**.
 
-## Configuration (`.env`)
+Students then launch the tool from D2L, are identified automatically, and
+check in with one tap.
 
-| Variable | Default | Notes |
-|---|---|---|
-| `SECRET_KEY` | **required** | 32+ random hex chars — signs cookies & QR tokens |
-| `ADMIN_PASSWORD` | **required** | Strong password for the instructor account |
-| `ADMIN_EMAIL` | admin@example.edu | Email of the admin instructor |
-| `SEED_DEMO` | `false` | `true` = seed demo institution/course/students (dev only) |
-| `DATABASE_URL` | `sqlite+aiosqlite:///./csu_checkin_v2.db` | Path to SQLite DB |
-| `QR_ROTATION_SECONDS` | 20 | Token rotation interval |
-| `DEFAULT_GEOFENCE_LAT` | 32.4600 | Default classroom lat (CSU campus) |
-| `DEFAULT_GEOFENCE_LON` | -84.9877 | Default classroom lon |
-| `DEFAULT_GEOFENCE_RADIUS_M` | 75 | Default geofence radius |
-| `CHECKIN_WINDOW_MINUTES` | 15 | Minutes after session start to accept check-ins |
-| `LATE_THRESHOLD_MINUTES` | 10 | Minutes after start to mark "late" |
-| `DEBUG` | `false` | Set `true` only for local debugging |
+## Getting attendance into the gradebook
 
-**Never commit `.env`.** The admin credentials are stored in `CREDENTIALS.txt` (gitignored).
+1. **Export for D2L Gradebook** on the course page.
+2. In D2L: **Grades → Import**, choose the file, and tick *Create new grade
+   item when an unrecognized item is referenced*.
+3. Set **Maximum Points to 100** for the *Attendance* item. D2L defaults to
+   10, which renders everyone as 1000%. The *Attendance Detail* text item
+   needs no properties.
+4. Continue through the preview, then Import.
 
----
+Re-importing later overwrites both columns with the current running totals, so
+there is nothing to reconcile. It also overwrites any manual edit made in D2L
+— correct attendance in the app and re-export instead.
 
-## Production deployment (Windows)
+Fully automatic passback would need LTI 1.3 Advantage (AGS), which requires
+your IT department to register the tool.
 
-### 1. Scheduled Tasks (current setup)
+## Configuration
 
-Two tasks run at logon, auto-restart on crash:
+All settings live in `.env`; see `.env.example` for the full list.
 
-| Task | Script | Purpose |
-|---|---|---|
-| `csu-checkin` | `start.ps1` | Runs uvicorn with restart loop; writes `server.log` |
-| `csu-checkin-backup` | `backup_db.py` | Nightly SQLite online backup at 21:00 |
+| Key | Purpose |
+| --- | --- |
+| `SECRET_KEY` | **Required.** Signs session cookies and QR tokens. Must be random. |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | **Required.** Bootstrap admin, created on an empty DB. |
+| `BASE_URL` | Public URL embedded in QR codes. |
+| `INSTITUTION_NAME`, `D2L_HOST`, `LTI_CONSUMER_KEY` | Institution identity, used when seeding. |
+| `ALLOWED_UNEXCUSED_ABSENCES` | Free absences before the grade is affected (default 3). |
+| `DISPLAY_TIMEZONE` | Zone for displayed times. Timestamps are stored as UTC. |
+| `QR_ROTATION_SECONDS` | Token rotation interval (default 20). |
+| `DEFAULT_GEOFENCE_LAT/LON/RADIUS_M` | Starting map position and radius for new courses. |
+| `CHECKIN_WINDOW_MINUTES`, `LATE_THRESHOLD_MINUTES` | Late handling. |
+| `DATABASE_URL` | Defaults to local SQLite. |
+| `SEED_DEMO` | `true` seeds a demo course and students. Development only. |
+| `DEBUG` | Leave `false` outside local debugging. |
 
-The tunnel is handled by a separate scheduled task (`EI-tunnel`) that runs `cloudflared` with the config at `C:\EI\tunnel\cloudflared-rupert.yml`, routing `checkin.drrothlisberger.com` → `127.0.0.1:8000`.
+Never commit `.env`.
 
-### 2. Docker (for IT handoff)
+## Roles
+
+- **Instructor** — manages their own courses only. Cannot see or alter another
+  instructor's courses, rosters or attendance.
+- **Admin** (`is_admin`) — additionally manages the shared D2L host and LTI
+  credentials that every course on the installation depends on.
+
+## Tests
+
+Run against a running instance. They read `BASE_URL`, `ADMIN_EMAIL` and
+`ADMIN_PASSWORD` from the environment or `.env`.
 
 ```bash
-# Build & run (uses .env from project root)
-docker compose up -d --build
+python scripts/smoke_test.py             # end-to-end happy path, 12 checks
+python scripts/test_isolation.py         # one instructor cannot reach another's data
+python scripts/test_admin_separation.py  # ordinary instructors cannot change shared config
 ```
 
-The `docker-compose.yml` mounts `./data` and `./backups` so the SQLite file and nightly backups persist outside the container. For fresh installs, set `DATABASE_URL=sqlite+aiosqlite:///./data/csu_checkin_v2.db` in the Docker `.env`.
+The latter two create and clean up their own throwaway records. All three
+expect a course with at least one enrolled student; override the target with
+`TEST_COURSE_ID`.
 
----
-
-## D2L Brightspace setup (LTI 1.1)
-
-No IT admin needed — any instructor can do this:
-
-1. In D2L: **Course → Content → Add Existing Activities → External Learning Tool**
-2. Title: `Attendance Check-In`
-2. URL: `https://checkin.drrothlisberger.com/lti/launch`
-4. Consumer Key: (from Settings page — `csu-checkin` by default)
-5. Secret: (from Settings page — auto-generated on first save)
-6. Check **Open as External Resource**
-7. Security Settings → enable: Send system username, Send user email, Send user name
-
-Students launch the tool from D2L → auto-identified → check-in with one tap.
-
----
-
-## Gradebook import (no IT required)
-
-After each class (or at term end):
-
-1. Instructor opens the course page → **Export for D2L Gradebook** (downloads CSV)
-2. In D2L: **Grades → gear icon → Import Grades**
-3. Upload CSV, match `OrgDefinedId` to student, map `Attendance Points Grade` to a grade item
-4. Import → attendance appears in the gradebook
-
-This is a one-minute manual step. Fully automatic passback (AGS) requires CSU IT to register the tool for LTI 1.3 Advantage services.
-
----
-
-## Database migrations (Alembic)
+## Database migrations
 
 Schema changes are versioned with Alembic.
 
 ```bash
-# Create a new migration after model changes
 alembic revision --autogenerate -m "describe change"
-
-# Apply to DB
 alembic upgrade head
 ```
 
-The production DB is stamped at `head` (baseline revision `1958aa23331c`). Fresh installs run `alembic upgrade head` automatically on first start (handled by `ensure_admin()`).
+## Backups
 
----
+`backup_db.py` uses SQLite's online backup API, so it is safe to run while the
+app is live. It keeps the last 14 backups in `backups/`. To restore: stop the
+app, replace the database file with a backup, restart.
 
-## Nightly backups
+A D2L grade export containing the *Attendance Detail* column is also a
+complete backup — see *Restore from D2L* on the course page.
 
-`backup_db.py` uses SQLite's online backup API — safe to run while the app is live. Keeps the last 14 backups in `backups/`. Restore: stop the app, replace `csu_checkin_v2.db` with a backup file, restart.
+## Deployment
 
----
+See [docs/DEPLOY.md](docs/DEPLOY.md). A `Dockerfile` and `docker-compose.yml`
+are included; the compose file mounts `./data` and `./backups` so the database
+and backups persist outside the container. SQLite is the default and is fine
+at course or department scale; point `DATABASE_URL` at PostgreSQL for anything
+larger.
 
-## Privacy & compliance (summary)
+## Privacy
 
-- Attendance records are **FERPA-protected education records**.
-- Location is checked **once** against the classroom geofence; only `in_fence` boolean + distance are stored.
-- Raw GPS is never persisted beyond the single check-in request.
-- Students see a notice when geofence is enforced: *"Your location is checked once against the classroom area and logged with your attendance."*
+- Attendance records are student education records. Host accordingly.
+- Location is checked once against the classroom geofence; only the distance
+  and an in/out flag are stored. Raw GPS is never persisted.
+- Students see a notice before any location check.
 - No analytics, tracking, or third-party data sharing.
-
----
 
 ## Tech stack
 
-| Layer | Choice |
-|---|---|
-| Backend | Python 3.13+, FastAPI, SQLAlchemy (async), SQLite |
-| Frontend | Jinja2 templates, vanilla JS, Leaflet map, Chart.js |
-| Auth | `itsdangerous` signed cookies, PBKDF2-SHA256 passwords |
-| QR tokens | HMAC-SHA256, 20s rotation, 30s expiry |
-| Geofence | Haversine distance, optional enforcement |
-| Tunnel | Cloudflare Tunnel (`cloudflared`) |
-| Process mgmt | Windows Scheduled Tasks + restart-loop PS1 |
+Python 3.11+, FastAPI, SQLAlchemy (async), SQLite by default. Jinja2
+templates with vanilla JS, Leaflet for the map picker and Chart.js for
+trends. Signed cookies via `itsdangerous`; PBKDF2-SHA256 password hashing.
 
----
+## Licence
 
-## License
-
-Internal tool — Columbus State University.
+MIT — see [LICENSE](LICENSE).

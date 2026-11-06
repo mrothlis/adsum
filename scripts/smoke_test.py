@@ -5,7 +5,7 @@ Reads admin credentials from CREDENTIALS.txt (gitignored) and runs a safe,
 non-destructive E2E check against the target BASE_URL.
 
 Usage:
-    python scripts/smoke_test.py                 # uses https://checkin.drrothlisberger.com
+    python scripts/smoke_test.py                 # uses BASE_URL from env or .env
     BASE_URL=http://localhost:8000 python scripts/smoke_test.py
     python scripts/smoke_test.py --reset         # also test reset-data (careful!)
 
@@ -22,16 +22,35 @@ import requests
 # Ensure project root (parent of scripts/) is on sys.path so we can import app.*
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-BASE = os.getenv("BASE_URL", "https://checkin.drrothlisberger.com")
+
+def _from_env_file(key, default=""):
+    """Read a key from .env without requiring python-dotenv."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    try:
+        for line in open(path, encoding="utf-8"):
+            if line.strip().startswith(key + "="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return default
+
+
+BASE = os.getenv("BASE_URL") or _from_env_file("BASE_URL", "http://127.0.0.1:8000")
 RUN_RESET = "--reset" in sys.argv
 
-# --- load admin credentials from CREDENTIALS.txt (gitignored) ---
-EMAIL = "rothlisberger_michael@columbusstate.edu"
-PW = None
-for line in open("CREDENTIALS.txt", encoding="utf-8"):
-    if line.startswith("Password:"):
-        PW = line.split(":", 1)[1].strip()
-assert PW, "CREDENTIALS.txt not found or missing Password line"
+# Admin credentials: env var, then CREDENTIALS.txt (gitignored), then .env.
+EMAIL = os.getenv("ADMIN_EMAIL") or _from_env_file("ADMIN_EMAIL", "admin@example.edu")
+PW = os.getenv("ADMIN_PASSWORD")
+if not PW:
+    try:
+        for line in open("CREDENTIALS.txt", encoding="utf-8"):
+            if line.startswith("Password:"):
+                PW = line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+if not PW:
+    PW = _from_env_file("ADMIN_PASSWORD")
+assert PW, "Set ADMIN_PASSWORD (env var or .env), or provide CREDENTIALS.txt"
 
 DB = "csu_checkin_v2.db"
 RESULTS = []
@@ -54,14 +73,14 @@ def main():
 
     # 2. admin login
     r = s.post(BASE + "/instructor/login",
-               data={"email": "rothlisberger_michael@columbusstate.edu", "password": PW},
+               data={"email": EMAIL, "password": PW},
                allow_redirects=False)
     icook = {"csu_session": r.cookies.get("csu_session")}
     check("admin login with new password", r.status_code == 302 and icook["csu_session"])
 
     # 3. old password rejected
     r = requests.post(BASE + "/instructor/login",
-                      data={"email": "rothlisberger_michael@columbusstate.edu", "password": "admin123"},
+                      data={"email": EMAIL, "password": "admin123"},
                       allow_redirects=False)
     check("old password (admin123) rejected", r.status_code == 401)
 
@@ -73,13 +92,13 @@ def main():
     throttle_ip = f"203.0.113.{_octet}"
     other_ip = f"198.51.100.{_octet}"
     codes = [requests.post(BASE + "/instructor/login",
-                           data={"email": "rothlisberger_michael@columbusstate.edu", "password": "wrong" + str(i)},
+                           data={"email": EMAIL, "password": "wrong" + str(i)},
                            headers={"X-Forwarded-For": throttle_ip},
                            allow_redirects=False).status_code for i in range(6)]
     check("throttle 5×401 → 429", codes[:5] == [401]*5 and codes[5] == 429)
     # Other IP unaffected
     r = requests.post(BASE + "/instructor/login",
-                      data={"email": "rothlisberger_michael@columbusstate.edu", "password": "wrong"},
+                      data={"email": EMAIL, "password": "wrong"},
                       headers={"X-Forwarded-For": other_ip}, allow_redirects=False)
     check("other IP unaffected", r.status_code == 401)
 

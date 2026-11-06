@@ -24,9 +24,9 @@ async def seed_demo_data() -> None:
         log.info("Seeding demo data …")
 
         inst = Institution(
-            name="Columbus State University",
-            d2l_host="colstate.view.usg.edu",
-            lti_consumer_key="csu-checkin",
+            name=settings.INSTITUTION_NAME,
+            d2l_host=settings.D2L_HOST or None,
+            lti_consumer_key=settings.LTI_CONSUMER_KEY,
             lti_consumer_secret=secrets.token_urlsafe(32),
         )
         db.add(inst)
@@ -34,8 +34,8 @@ async def seed_demo_data() -> None:
 
         course = Course(
             institution_id=inst.id,
-            name="BUSA 3000 — Business Analytics",
-            course_code="BUSA3000",
+            name="Example Course 101",
+            course_code="EXAMPLE101",
             d2l_org_unit_id="1",
             geofence_lat=settings.DEFAULT_GEOFENCE_LAT,
             geofence_lon=settings.DEFAULT_GEOFENCE_LON,
@@ -45,8 +45,8 @@ async def seed_demo_data() -> None:
         await db.flush()
 
         instructor = Instructor(
-            name="Dr. Michael Rothlisberger",
-            email="rothlisberger_michael@columbusstate.edu",
+            name="Demo Instructor",
+            email=settings.ADMIN_EMAIL,
             password_hash=hash_password(settings.ADMIN_PASSWORD),
             is_admin=True,
         )
@@ -72,7 +72,7 @@ async def seed_demo_data() -> None:
         for name, uname, sid in student_data:
             s = Student(
                 name=name,
-                email=f"{uname}@students.columbusstate.edu",
+                email=f"{uname}@students.example.edu",
                 student_id_number=sid,
             )
             db.add(s)
@@ -95,9 +95,9 @@ async def ensure_admin() -> None:
                       "refusing to create an admin with a known password. Set ADMIN_PASSWORD in .env.")
             return
         inst = Institution(
-            name="Columbus State University",
-            d2l_host="colstate.view.usg.edu",
-            lti_consumer_key="csu-checkin",
+            name=settings.INSTITUTION_NAME,
+            d2l_host=settings.D2L_HOST or None,
+            lti_consumer_key=settings.LTI_CONSUMER_KEY,
             lti_consumer_secret=secrets.token_urlsafe(32),
         )
         db.add(inst)

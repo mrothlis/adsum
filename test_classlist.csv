@@ -1,12 +1,5 @@
 First Name,Last Name,Username,OrgDefinedId,Email,Section,Role
-Alice,Johnson,ajohnson,900100001,ajohnson@students.columbusstate.edu,Section 01,Student
-Bob,Martinez,bmartinez,900100002,bmartinez@students.columbusstate.edu,Section 01,Student
-Carla,Davis,cdavis,900100003,cdavis@students.columbusstate.edu,Section 01,Student
-David,Lee,dlee,900100004,dlee@students.columbusstate.edu,Section 01,Student
-Emma,Wilson,ewilson,900100005,ewilson@students.columbusstate.edu,Section 01,Student
-Frank,Thomas,fthomas,900100006,fthomas@students.columbusstate.edu,Section 01,Student
-Grace,Kim,gkim,900100007,gkim@students.columbusstate.edu,Section 01,Student
-Henry,Brown,hbrown,900100008,hbrown@students.columbusstate.edu,Section 01,Student
-Iris,Patel,ipatel,900100009,ipatel@students.columbusstate.edu,Section 01,Student
-Jack,Robinson,jrobinson,900100010,jrobinson@students.columbusstate.edu,Section 01,Student
-NewStudent,Test,ntest,900100011,ntest@students.columbusstate.edu,Section 01,Student
+Alice,Johnson,ajohnson,900100001,ajohnson@students.example.edu,Section 01,Student
+Bob,Martinez,bmartinez,900100002,bmartinez@students.example.edu,Section 01,Student
+Carla,Davis,cdavis,900100003,cdavis@students.example.edu,Section 01,Student
+David,Lee,dlee,900100004,dlee@students.example.edu,Section 01,Student

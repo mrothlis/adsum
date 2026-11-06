@@ -36,6 +36,12 @@ class Settings:
     # Fallback offset used only if the IANA tz database is missing.
     DISPLAY_UTC_OFFSET_HOURS: int = int(os.getenv("DISPLAY_UTC_OFFSET_HOURS", "-5"))
 
+    # Identity of the deploying institution. Set these in .env; the defaults
+    # are deliberately generic so a fresh clone belongs to nobody.
+    INSTITUTION_NAME: str = os.getenv("INSTITUTION_NAME", "Your Institution")
+    D2L_HOST: str = os.getenv("D2L_HOST", "")
+    LTI_CONSUMER_KEY: str = os.getenv("LTI_CONSUMER_KEY", "attendance-checkin")
+
     # Free unexcused absences before attendance percentage is affected.
     ALLOWED_UNEXCUSED_ABSENCES: int = int(os.getenv("ALLOWED_UNEXCUSED_ABSENCES", "3"))
 

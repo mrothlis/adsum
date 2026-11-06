@@ -27,7 +27,7 @@ All components run as the `mgrot` user (or a dedicated service account). The `cl
 | Windows Server 2019+ / Windows 10+ | Any edition with Task Scheduler |
 | Python 3.13+ | `C:\Programs\Python\Python313` or similar |
 | Cloudflare account | One tunnel (`rupert`), credentials file at `C:\Users\<svc>\.cloudflared\656d3e2a-fd4c-4a41-8da6-561b71add531.json` |
-| Domain DNS | `checkin.drrothlisberger.com` CNAME to the tunnel |
+| Domain DNS | `your-host.example.edu` CNAME to the tunnel |
 
 ---
 
@@ -50,7 +50,7 @@ Copy `.env.example` to `.env` and set:
 ```
 SECRET_KEY=...          # 32+ hex chars, generated once
 ADMIN_PASSWORD=...      # Strong, store in password manager
-ADMIN_EMAIL=instructor@columbusstate.edu
+ADMIN_EMAIL=admin@example.edu
 SEED_DEMO=false
 DATABASE_URL=sqlite+aiosqlite:///./csu_checkin_v2.db
 DEBUG=false
@@ -91,13 +91,13 @@ python -m alembic upgrade head
 
 ### 3.5 Cloudflare Tunnel
 
-The tunnel is a separate scheduled task (`EI-tunnel`) that runs `cloudflared` with the config at `C:\EI\tunnel\cloudflared-rupert.yml`. It routes `checkin.drrothlisberger.com` → `http://127.0.0.1:8000`.
+The tunnel is a separate scheduled task (`EI-tunnel`) that runs `cloudflared` with the config at `<your cloudflared config>`. It routes `your-host.example.edu` → `http://127.0.0.1:8000`.
 
 The config file contains the ingress rules:
 
 ```yaml
 ingress:
-  - hostname: checkin.drrothlisberger.com
+  - hostname: your-host.example.edu
     service: http://127.0.0.1:8000
   - service: http_status:404
 ```
@@ -134,7 +134,7 @@ The container runs `uvicorn` directly; `docker compose restart` handles crashes.
 
 1. D2L → Course → Content → Add Existing Activities → External Learning Tool
 2. Title: `Attendance Check-In`
-3. URL: `https://checkin.drrothlisberger.com/lti/launch`
+3. URL: `https://your-host.example.edu/lti/launch`
 4. Consumer Key: from Settings page (default `csu-checkin`)
 5. Secret: from Settings page (auto-generated on first save)
 6. Check **Open as External Resource**
@@ -209,6 +209,6 @@ The production DB is stamped at head (baseline revision `1958aa23331c`). Fresh i
 
 | Role | Contact |
 |---|---|
-| App owner (Michael Rothlisberger) | rothlisberger_michael@columbusstate.edu |
+| App owner | set this to whoever maintains the install |
 | Cloudflare / Tunnel | CSU IT (Tailscale / Cloudflare admin) |
 | D2L Brightspace | CSU IT (Brightspace admin) |
