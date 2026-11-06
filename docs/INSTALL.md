@@ -46,12 +46,15 @@ docker compose up -d --build
 docker compose logs -f        # Ctrl-C to stop following
 ```
 
-The compose file mounts `./data` and `./backups`, so the database and backups
-live on the host and survive container rebuilds. For a fresh install set:
+The compose file mounts `./data` and `./backups` and pins `DATABASE_URL` to
+`./data/checkin.db`, so the database and backups live on the host and survive
+container rebuilds. You do not need to set `DATABASE_URL` yourself; the
+compose `environment:` block deliberately overrides whatever is in `.env`,
+because a database written anywhere else is destroyed on the next rebuild.
 
-```
-DATABASE_URL=sqlite+aiosqlite:///./data/checkin.db
-```
+> The Docker path is provided for convenience but has not been exercised as
+> thoroughly as the direct Python install. If you hit a problem with it,
+> please open an issue.
 
 ### Option B — Python directly
 
@@ -340,6 +343,11 @@ nothing to do.
 ---
 
 ## 11. Verifying the install
+
+The direct Python install in section 2B is verified from a clean clone: fresh
+virtualenv, `.env` copied from `.env.example`, empty database. The app refuses
+to start until `SECRET_KEY` and `ADMIN_PASSWORD` are set, then creates the
+admin account and starts with no demo data.
 
 Run the three test scripts against your instance. They read `BASE_URL`,
 `ADMIN_EMAIL` and `ADMIN_PASSWORD` from the environment or `.env`.

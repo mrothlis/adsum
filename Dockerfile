@@ -1,4 +1,4 @@
-# Docker image for CSU Check-In — production build
+# Attendance Check-In — production image
 FROM python:3.13-slim
 
 WORKDIR /app
@@ -7,9 +7,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app code
+# Copy app code, plus the migration tooling so `alembic upgrade head` can be
+# run inside the container when upgrading.
 COPY app ./app
-COPY run.py backup_db.py ./
+COPY run.py backup_db.py alembic.ini ./
+COPY alembic ./alembic
+
+# The database and backups are bind-mounted here by docker-compose.
+RUN mkdir -p /app/data /app/backups
 
 EXPOSE 8000
 

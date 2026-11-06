@@ -1,9 +1,13 @@
-version: "3.8"
-
 services:
   checkin:
     build: .
     env_file: .env
+    environment:
+      # Overrides whatever DATABASE_URL is in .env. The database MUST live
+      # under /app/data, which is the mounted volume below — otherwise it is
+      # written inside the container and every rebuild silently destroys the
+      # attendance record.
+      - DATABASE_URL=sqlite+aiosqlite:///./data/checkin.db
     ports:
       - "8000:8000"
     volumes:
