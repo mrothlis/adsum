@@ -10,13 +10,13 @@ document covers the Windows specifics only.
 ## 1. Architecture overview
 
 ```
-Internet → Cloudflare Tunnel (cloudflared) → Windows host:8000 → uvicorn (FastAPI) → SQLite (csu_checkin_v2.db)
+Internet → Cloudflare Tunnel (cloudflared) → Windows host:8000 → uvicorn (FastAPI) → SQLite (adsum.db)
                          ↑
             Scheduled Task EI-tunnel (runs cloudflared as restart-loop)
                          ↑
-            Scheduled Task csu-checkin (runs uvicorn as restart-loop)
+            Scheduled Task adsum (runs uvicorn as restart-loop)
                          ↑
-            Scheduled Task csu-checkin-backup (runs backup_db.py daily at 21:00)
+            Scheduled Task adsum-backup (runs backup_db.py daily at 21:00)
 ```
 
 All components run as the `mgrot` user (or a dedicated service account). The `cloudflared` connector uses a named tunnel (`rupert`) with its own credentials file.
@@ -41,9 +41,9 @@ All components run as the `mgrot` user (or a dedicated service account). The `cl
 ```powershell
 # As admin (or service account)
 winget install Python.Python.3.13
-python -m venv C:\Apps\csu-checkin\.venv
-C:\Apps\csu-checkin\.venv\Scripts\pip.exe install --upgrade pip
-C:\Apps\csu-checkin\.venv\Scripts\pip.exe install -r requirements.txt
+python -m venv C:\Apps\adsum\.venv
+C:\Apps\adsum\.venv\Scripts\pip.exe install --upgrade pip
+C:\Apps\adsum\.venv\Scripts\pip.exe install -r requirements.txt
 ```
 
 ### 3.2 Configuration
@@ -55,7 +55,7 @@ SECRET_KEY=...          # 32+ hex chars, generated once
 ADMIN_PASSWORD=...      # Strong, store in password manager
 ADMIN_EMAIL=admin@example.edu
 SEED_DEMO=false
-DATABASE_URL=sqlite+aiosqlite:///./csu_checkin_v2.db
+DATABASE_URL=sqlite+aiosqlite:///./adsum.db
 DEBUG=false
 ```
 
@@ -64,29 +64,29 @@ Never commit `.env`. Keep `CREDENTIALS.txt` (admin email/password) in a secure l
 ### 3.3 Create the database + admin
 
 ```powershell
-cd C:\Apps\csu-checkin
+cd C:\Apps\adsum
 python -m alembic upgrade head
 # On first run, ensure_admin() creates the institution + admin instructor
 ```
 
 ### 3.4 Scheduled Tasks
 
-**Task: csu-checkin** (runs the app)
+**Task: adsum** (runs the app)
 
 ```powershell
 # Action: powershell.exe
-# Arguments: -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Apps\csu-checkin\start.ps1"
+# Arguments: -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Apps\adsum\start.ps1"
 # Trigger: At logon of the service account
 # Settings: Restart on failure (1 min, 999 times)
 ```
 
 `start.ps1` (in project root) restarts uvicorn on crash and writes `server.log`.
 
-**Task: csu-checkin-backup** (nightly backup)
+**Task: adsum-backup** (nightly backup)
 
 ```powershell
-# Action: C:\Apps\csu-checkin\.venv\Scripts\python.exe
-# Arguments: C:\Apps\csu-checkin\backup_db.py
+# Action: C:\Apps\adsum\.venv\Scripts\python.exe
+# Arguments: C:\Apps\adsum\backup_db.py
 # Trigger: Daily at 21:00
 ```
 
@@ -116,7 +116,7 @@ Restart the `EI-tunnel` task after any config change.
 1. D2L → Course → Content → Add Existing Activities → External Learning Tool
 2. Title: `Adsum`
 3. URL: `https://your-host.example.edu/lti/launch`
-4. Consumer Key: from Settings page (default `csu-checkin`)
+4. Consumer Key: from Settings page (default `adsum`)
 5. Secret: from Settings page (auto-generated on first save)
 6. Check **Open as External Resource**
 7. Security Settings → enable: Send system username, Send user email, Send user name
@@ -146,9 +146,9 @@ This is a one-minute manual step. Fully automatic passback (LTI 1.3 AGS) require
 
 - **Automatic:** `backup_db.py` runs daily at 21:00 via scheduled task. Uses SQLite online backup API (safe while live). Keeps 14 days in `backups/`.
 - **Manual restore:**
-  1. Stop the `csu-checkin` task.
-  2. Replace `csu_checkin_v2.db` with the desired backup file.
-  3. Start the `csu-checkin` task.
+  1. Stop the `adsum` task.
+  2. Replace `adsum.db` with the desired backup file.
+  3. Start the `adsum` task.
 
 ---
 
