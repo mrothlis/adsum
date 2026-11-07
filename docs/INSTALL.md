@@ -12,13 +12,13 @@ machine you install it on except the requests you make to your own D2L.
 
 | Requirement | Notes |
 | --- | --- |
-| A machine to run it on | Any Linux, macOS or Windows host, or a container runtime. A 1 vCPU / 1 GB VM is ample for a department. |
+| A machine to run it on | Any Linux, macOS or Windows host. A 1 vCPU / 1 GB VM is ample for a department. There is no Dockerfile and no compose file in this repository, so a container runtime is not a supported path today. |
 | Python 3.11 or newer | |
 | A public HTTPS address | Students scan a QR code with their phones; their browsers must reach the server. |
-| A D2L Brightspace course | You need permission to add an External Learning Tool link, which instructors normally have. |
+| A D2L Brightspace course | You need permission to add an External Learning Tool link, which instructors normally have, on a Brightspace site where LTI 1.1 is still enabled. See section 6. |
 
-You do **not** need: a database server (SQLite is the default), an IT ticket
-for LTI 1.1, or any paid service.
+You do **not** need: a database server (SQLite is the default and the only
+supported one), an IT ticket for LTI 1.1 today, or any paid service.
 
 ### Where it can run
 
@@ -32,14 +32,14 @@ for LTI 1.1, or any paid service.
 
 ## 2. Install
 
-### Install
+### Linux and macOS
 
 ```bash
-git clone https://github.com/<owner>/adsum.git
+git clone https://github.com/mrothlis/adsum.git
 cd adsum
 
 python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
@@ -48,12 +48,51 @@ cp .env.example .env
 python run.py
 ```
 
-The app listens on port 8000.
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/mrothlis/adsum.git
+cd adsum
+
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+copy .env.example .env
+notepad .env                       # see section 3
+
+python run.py
+```
+
+If `Activate.ps1` is blocked, either run
+`Set-ExecutionPolicy -Scope Process RemoteSigned` in that window, or skip
+activation entirely and call the interpreter by path:
+`.venv\Scripts\python.exe run.py`.
+
+The app listens on port 8000. By default it binds `0.0.0.0`, every interface,
+so it is reachable from your whole network over plain HTTP. Set
+`HOST=127.0.0.1` in `.env` while you are still setting up.
+
+To run the test suite or the linter later, also install the development
+dependencies:
+
+```bash
+pip install -r requirements-dev.txt
+```
 
 ### Generating a SECRET_KEY
 
+Linux, macOS, and Windows `cmd.exe`:
+
 ```bash
 python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+PowerShell parses double quotes itself, so wrap the whole argument in single
+quotes instead:
+
+```powershell
+python -c 'import secrets; print(secrets.token_hex(32))'
 ```
 
 This signs session cookies **and** QR check-in tokens. If it is weak, shared
@@ -64,7 +103,19 @@ a fresh one per install.
 
 ## 3. Configuration
 
-Everything lives in `.env`. Nothing is hard-coded.
+Settings live in `.env`. Nothing is hard-coded.
+
+Two things are **not** in `.env`:
+
+- **The LTI consumer secret.** It is generated on first start, kept in the
+  database, and shown at `/admin`.
+- **The attendance policy.** It is per course, set by each instructor.
+
+And one thing to know before you debug a setting that "will not apply": **a
+real operating-system environment variable overrides `.env`.** The app loads
+`.env` without overriding what is already in the environment, so a value
+exported in your shell, set in a systemd unit, or set on a Windows scheduled
+task wins over the file.
 
 ### Required
 
@@ -119,7 +170,33 @@ SEED_DEMO=false
 ```
 
 `SEED_DEMO=true` creates a demo course with fictional students. Useful for
-trying the app out, wrong for real use.
+trying the app out, wrong for real use. See section 5 for why you probably
+want one deliberate run with it switched on, against a throwaway database.
+
+### Network binding
+
+```ini
+HOST=0.0.0.0
+PORT=8000
+```
+
+`HOST=0.0.0.0` means every interface. On a laptop or a shared network that
+makes a local try-out reachable by anyone on the same LAN over plain HTTP. Set
+`HOST=127.0.0.1` when you are evaluating it, and in production when a reverse
+proxy on the same machine is the only thing that should reach the app
+directly.
+
+### Database
+
+```ini
+DATABASE_URL=sqlite+aiosqlite:///./adsum.db
+```
+
+SQLite is the only supported database. PostgreSQL does not work today:
+`asyncpg` is not in `requirements.txt`, `alembic/env.py` cannot build a
+synchronous engine from an async PostgreSQL URL, and at least one migration
+uses boolean-as-integer SQL that PostgreSQL rejects. Do not point this at
+PostgreSQL expecting it to work.
 
 ---
 
@@ -194,37 +271,129 @@ Fine for trialling. For anything a colleague depends on, use real hosting.
 3. Check `https://your-host/healthz` returns `{"status":"ok"}`. Point your
    uptime monitor at it.
 
-Courses are not created by hand. The first time an instructor launches the
-tool from their D2L course, the course, the instructor account and the
-enrolment are created automatically.
+### Your dashboard will be empty, and there is no way to fix that here
+
+Courses are not created by hand, and there is **no "add course" button
+anywhere in the interface**. The first time an instructor launches the tool
+from their D2L course, the course, the instructor account and the enrolment
+are all created automatically by that launch. Until section 6 is done, a fresh
+install has nothing in it: no courses, no students, no sessions, nothing to
+export.
+
+### Recommended: one practice run with demo data first
+
+Before you wire up D2L, take a tour on a database you are going to throw away:
+
+```ini
+SEED_DEMO=true
+DATABASE_URL=sqlite+aiosqlite:///./demo.db
+```
+
+Start the app, sign in, and you will have a demo course with fictional
+students. From there you can start a session, scan the QR code with your own
+phone, mark someone present by hand, export the gradebook CSV to see its
+shape, and run the full test suite (section 11). Four of the six test scripts
+need a course with at least one enrolled student, and this is the only way to
+have one before D2L is connected.
+
+When you are done:
+
+1. Stop the app.
+2. Delete `demo.db`.
+3. Set `SEED_DEMO=false` and `DATABASE_URL` back to `sqlite+aiosqlite:///./adsum.db`.
+4. Start it again and continue with section 6.
 
 ---
 
-## 6. Connecting D2L
+## 6. Connecting D2L (LTI 1.1)
 
-Any instructor can do this; it needs no administrator.
+> ### Before you start: D2L is retiring LTI 1.1
+>
+> *Written November 2026. Confirm the current position with your Brightspace
+> administrator.*
+>
+> This section describes the legacy course-level External Learning Tool flow,
+> which is what lets an instructor connect Adsum without an IT ticket. D2L has
+> announced its retirement:
+>
+> | When | What happens |
+> | --- | --- |
+> | Sept 2026 | D2L announced its intent to end support for LTI 1.1. |
+> | Oct 2026 | Formal customer notification. |
+> | **Feb 2027** (release 20.27.2) | Customers can **no longer configure or deploy new LTI 1.1 integrations** through the Brightspace UI, and the Valence API for creating legacy LTI tool providers is removed. |
+> | Mar 2027 | Institutions may opt in to disabling LTI 1.1 early. |
+> | **Late 2027** | **LTI 1.1 launches stop working entirely.** |
+>
+> What this means for you: following this section today works, and a link
+> created before the February 2027 release keeps launching until late 2027.
+> After that release you cannot create a new LTI 1.1 link at all, and your
+> institution may have switched 1.1 off sooner. Adsum does not support LTI 1.3
+> yet; that is the project's next step, not a shipped feature, and 1.3
+> registration is an organisation-level administrator job rather than
+> something an instructor can do alone. Talk to your Brightspace
+> administrator early, and give them
+> [BRIGHTSPACE-ADMIN.md](BRIGHTSPACE-ADMIN.md).
+>
+> D2L's pages disagree on the final date: the KB article says September 2027,
+> the High Impact Changes Timeline says release 20.27.08, and the press release
+> says October 2027. Treat it as late 2027.
+>
+> Sources:
+> [LTI 1.1 deprecation plan](https://community.d2l.com/brightspace/kb/articles/25994-lti-1-1-deprecation-plan),
+> [D2L press release](https://www.d2l.com/newsroom/d2l-announces-security-enhancements-with-retirement-of-lti-1-1-support/),
+> [High Impact Changes Timeline](https://community.d2l.com/brightspace/kb/articles/1047-high-impact-changes-timeline),
+> [LTI migration](https://community.d2l.com/brightspace/kb/articles/23664-lti-migration),
+> [1EdTech deprecation schedule](https://www.1edtech.org/lti-security-announcement-and-deprecation-schedule).
 
-1. In the app, open any course → **Settings**. Note the launch URL, consumer
-   key and consumer secret. (Only administrators can see the secret.)
-2. In D2L, go to your course → **Content** → pick a module → **Add Existing
-   Activities** → **External Learning Tool**.
-3. Create a new tool link:
+**The order below matters.** A fresh install has no courses, so there is no
+course page to copy credentials from. They live at `/admin`, and the course
+page only comes into existence at step 6.
+
+1. **Sign in to Adsum as the bootstrap admin** (`ADMIN_EMAIL` /
+   `ADMIN_PASSWORD`) and open **`/admin`**.
+2. On the **D2L Brightspace connection** card, enter your **D2L host** (for
+   example `yourschool.brightspace.com`) and save. Then copy three values from
+   that card:
+   - the **launch URL**, shown as `https://your-host/lti/launch`
+   - the **LTI consumer key**, `adsum` unless you changed `LTI_CONSUMER_KEY`
+   - the **LTI consumer secret**, which was generated automatically on the
+     first start. Leave the field blank when saving to keep the existing one.
+3. **In D2L**: your course → **Content** → pick a module → **Add Existing
+   Activities** → **External Learning Tool** → create a new link:
    - **Title**: `Adsum`
-   - **URL**: `https://your-host/lti/launch`
-   - **Key**: your `LTI_CONSUMER_KEY`
-   - **Secret**: the secret from step 1
+   - **URL**: the launch URL from step 2
+   - **Key**: the consumer key from step 2
+   - **Secret**: the consumer secret from step 2
 4. Tick **Open as External Resource**.
-5. Under **Security Settings**, enable **Send system username**, **Send user
-   email**, and **Send user name**. Without these the launch arrives
+5. Under **Security Settings**, enable all three of **Send system username**,
+   **Send user email** and **Send user name**. Without them the launch arrives
    unidentified and nobody can be matched to a roster.
+6. **Click the link once, in D2L, as yourself.** This is the step that creates
+   the course in Adsum, creates or links your instructor account, and enrols
+   you as its instructor. You should land in the app, signed in, on your
+   course.
+7. **Now** open **Course → Settings**, which exists for the first time, and
+   set the geofence, the attendance policy and campus IP ranges. The roster
+   import, which takes a D2L Classlist export, is on the course page itself.
 
-Click the link once yourself. You should land in the app, signed in, on your
-course.
+### If you are not the Adsum administrator
+
+The course settings page deliberately does **not** show the consumer secret,
+because it is shared by every course on the installation and anyone holding it
+can forge a launch as any user. Ask whoever administers the install for the
+launch URL, key and secret.
+
+The better arrangement for a shared install is to ask IT to register Adsum
+once as an **organisation-level** External Learning Tool. Instructors can then
+add the link to their own courses without ever seeing the secret.
+[BRIGHTSPACE-ADMIN.md](BRIGHTSPACE-ADMIN.md) is a one-page briefing written to
+be forwarded to them.
 
 ### Rotating the secret
 
-The secret must match on both sides at the same time. Change it in the app's
-settings and in the D2L tool configuration together, or every launch fails.
+The secret must match on both sides at the same time. Change it at `/admin`
+and in the D2L tool configuration together, or every launch fails, for every
+instructor on the install.
 
 ---
 
@@ -277,8 +446,24 @@ sudo systemctl status adsum
 
 ### Windows
 
-Use Task Scheduler with a task that runs at startup, restarts on failure, and
-launches `run.py`. See `docs/DEPLOY.md` for a worked example.
+Use Task Scheduler with a task that runs at startup or at logon of the service
+account, restarts on failure, and runs the bundled launcher:
+
+```
+Action:    powershell.exe
+Arguments: -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\path\to\adsum\start.ps1"
+Settings:  Restart on failure, every 1 minute, up to 999 times
+```
+
+`start.ps1` restarts uvicorn if it exits and appends everything to
+`server.log`. It picks its interpreter in this order: `PYTHON=` in `.env`,
+then `.venv\Scripts\python.exe`, then `python` on the `PATH`. On Windows
+`python` often resolves to a Store stub, so set `PYTHON=` to the full path of
+the interpreter you installed the dependencies into. That key is read by the
+launcher, not by the app, so put it in `.env` and do not add it to
+`.env.example`.
+
+[DEPLOY.md](DEPLOY.md) is a complete worked Windows deployment.
 
 ---
 
@@ -288,11 +473,26 @@ Two independent layers, and you want both.
 
 **The database.** `backup_db.py` uses SQLite's online backup API, so it is
 safe while the app is running. It keeps the last 14 copies in `backups/`.
-Schedule it nightly:
+Schedule it nightly.
+
+Linux and macOS, with cron:
 
 ```cron
 0 21 * * * cd /opt/adsum && .venv/bin/python backup_db.py
 ```
+
+Windows, with Task Scheduler:
+
+```
+Action:    C:\path\to\adsum\.venv\Scripts\python.exe
+Arguments: backup_db.py
+Start in:  C:\path\to\adsum
+Trigger:   Daily at 21:00
+```
+
+`backup_db.py` resolves a relative `DATABASE_URL` against its own directory,
+not the working directory, so it backs up the right file either way. Setting
+**Start in** is still worth doing so the task behaves predictably.
 
 To restore: stop the app, replace the database file with a backup, start it.
 
@@ -315,31 +515,67 @@ pip install -r requirements.txt
 alembic upgrade head                # apply any schema changes
 ```
 
+On Windows, in the project directory with the virtualenv active, the same
+three commands work.
+
 Take a backup first. `alembic upgrade head` is safe to run when there is
 nothing to do.
+
+> **Do not run `alembic upgrade head` on a brand-new install.** It crashes
+> with `NoSuchTableError: courses`. The baseline revision creates no tables:
+> the schema is built by SQLAlchemy's `create_all` in `app/database.py` the
+> first time the app starts, and the app then stamps the database at the
+> current migration head. So the correct order on a fresh install is **start
+> the app once**, and migrations only come into it on later upgrades.
 
 ---
 
 ## 11. Verifying the install
 
-The install is verified from a clean clone on every push by CI, and can be
-reproduced locally with `python scripts/verify_install.py`: fresh
-virtualenv, `.env` copied from `.env.example`, empty database. The app refuses
-to start until `SECRET_KEY` and `ADMIN_PASSWORD` are set, then creates the
-admin account and starts with no demo data.
+Install the development dependencies first, otherwise `ruff` is not present:
 
-Run the three test scripts against your instance. They read `BASE_URL`,
-`ADMIN_EMAIL` and `ADMIN_PASSWORD` from the environment or `.env`.
+```bash
+pip install -r requirements-dev.txt
+```
+
+There are six scripts. **Two need no server:**
+
+```bash
+python scripts/test_scoring.py           # the grade arithmetic
+python scripts/verify_install.py         # clean-install check
+ruff check app scripts run.py backup_db.py
+```
+
+`verify_install.py` exports the committed tree with `git archive`, configures
+it from `.env.example` alone, and starts it, which is also what CI does on
+every push. The app refuses to start until `SECRET_KEY` and `ADMIN_PASSWORD`
+are set, then creates the admin account and starts with no demo data.
+
+**Four need a running instance *and* a course with at least one enrolled
+student:**
 
 ```bash
 python scripts/smoke_test.py             # end-to-end happy path
 python scripts/test_isolation.py         # instructors cannot see each other's data
 python scripts/test_admin_separation.py  # non-admins cannot change shared settings
+python scripts/test_admin_page.py        # /admin stays inside its boundary
 ```
 
-The last two need a course with at least one enrolled student; set
-`TEST_COURSE_ID` to point at it. Run the isolation tests after any upgrade —
-they are the ones that catch a privacy regression.
+They read `BASE_URL`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` from the environment
+or `.env`, and pick a course automatically. Set `TEST_COURSE_ID` to choose
+one.
+
+A fresh install has no courses, so these four cannot pass until either D2L is
+connected (section 6) or you run against a `SEED_DEMO=true` throwaway
+database, as described in section 5. The quickest way to run the whole set the
+way CI does, on a scratch copy with its own database and port, is:
+
+```bash
+bash scripts/ci_local.sh
+```
+
+Run the isolation tests after any upgrade. They are the ones that catch a
+privacy regression.
 
 ---
 
@@ -348,16 +584,27 @@ they are the ones that catch a privacy regression.
 | Symptom | Cause |
 | --- | --- |
 | QR code scans to an unreachable page | `BASE_URL` is wrong, or is a private address students' phones cannot resolve. |
-| D2L link returns 403 | Consumer key or secret mismatch. They must match on both sides exactly. |
+| D2L link returns 403 | Consumer key or secret mismatch. They must match on both sides exactly. The secret is at `/admin`, not on the course page. |
+| D2L link returns 403 and the key and secret are definitely right | The site may have LTI 1.1 disabled. See the notice in section 6. |
 | Launch works but the student is unidentified | Security Settings in the D2L link are not sending username, email and name. |
 | Everyone shows as 1000% in the gradebook | Maximum Points on the *Attendance* grade item is 10. Set it to 100. |
 | Times are several hours off | `DISPLAY_TIMEZONE` is unset, or `tzdata` is missing on Windows. |
 | Live attendance list does not update | Reverse proxy is buffering server-sent events. See section 4. |
 | One failed login locks out everyone | The proxy is not forwarding `X-Forwarded-For`. |
-| "Nothing to export" | The course has no sessions. This is a deliberate guard — see section 9. |
+| "Nothing to export" | The course has no sessions. This is a deliberate guard, see section 9. |
+| The dashboard is empty and there is no way to add a course | Expected on a fresh install. Courses are created by the first D2L launch. See sections 5 and 6. |
+| A setting in `.env` seems to be ignored | The same name is set as a real environment variable, which wins. See section 3. |
+| `alembic upgrade head` fails with `NoSuchTableError: courses` | You ran it on an empty database. Start the app once instead. See section 10. |
+| `ruff: command not found` | `pip install -r requirements-dev.txt`. |
+| Windows service does not start at boot, no obvious error | `start.ps1` could not find a usable interpreter. Check the last lines of `server.log` and set `PYTHON=` in `.env`. |
 
-Logs: `journalctl -u adsum` or
-`server.log` depending on how you run it.
+Logs:
+
+- **Linux (systemd):** `journalctl -u adsum -f`
+- **Windows (Task Scheduler and `start.ps1`):** `server.log` in the project
+  directory. Tail it with
+  `Get-Content .\server.log -Wait -Tail 50`.
+- **Running in the foreground:** the terminal you started it in.
 
 ---
 
@@ -380,16 +627,45 @@ them.
 
 ## 14. Before you go live
 
+In order. The test scripts come after D2L is connected, not before, because
+four of them need a real course with an enrolled student.
+
+**Configuration**
+
 - [ ] `SECRET_KEY` is unique and random
 - [ ] `ADMIN_PASSWORD` is strong, and `.env` is not in version control
-- [ ] `DEBUG=false`, `SEED_DEMO=false`
+- [ ] `DEBUG=false`, `SEED_DEMO=false`, and any demo database has been deleted
+- [ ] `HOST` is what you intended: `127.0.0.1` behind a local reverse proxy,
+      `0.0.0.0` only when something else must connect directly
 - [ ] HTTPS works, and `BASE_URL` matches it exactly
+
+**Before D2L is connected**
+
+- [ ] `python scripts/test_scoring.py` passes
+- [ ] `python scripts/verify_install.py` passes
+- [ ] `ruff check app scripts run.py backup_db.py` passes
+      (needs `requirements-dev.txt`)
+- [ ] You have had one practice run with `SEED_DEMO=true` on a throwaway
+      database, and the four live-instance scripts passed against it, for
+      example with `bash scripts/ci_local.sh`
+
+**After D2L is connected (section 6)**
+
+- [ ] A launch from your D2L course works and lands you on a course page
 - [ ] The LTI secret is not a default, and matches D2L
+- [ ] `python scripts/smoke_test.py`, `test_isolation.py`,
+      `test_admin_separation.py` and `test_admin_page.py` all pass against the
+      real instance, with `TEST_COURSE_ID` pointing at the real course
+- [ ] One full dry run: start a session, check in from a phone, export, and
+      import into a sandbox D2L course
+
+**Operations**
+
 - [ ] Nightly backups are scheduled and you have restored one once
 - [ ] `/healthz` is monitored
-- [ ] The three test scripts pass
-- [ ] You have done one full dry run: start a session, check in from a phone,
-      export, and import into a sandbox D2L course
+- [ ] You know where the logs are: `journalctl -u adsum` or `server.log`
 
-See [SECURITY.md](../SECURITY.md) for the security model, and remember that
-attendance records are student education records. Host them accordingly.
+See [SECURITY.md](../SECURITY.md) for the security model, and
+[BRIGHTSPACE-ADMIN.md](BRIGHTSPACE-ADMIN.md) for the page to hand your IT
+department. Remember that attendance records are student education records.
+Host them accordingly.

@@ -369,9 +369,24 @@ async def course_detail(
         _exc = await _excused_count(db, s.id, session_ids)
         _sc = score(total_sessions, _present, _late, _exc,
                     _policy.allowed_unexcused, _policy.late_credit_percent)
+        # Two different percentages, computed here rather than in the
+        # template. The roster shows both because the policy-adjusted grade
+        # alone was actively misleading: with three absences forgiven, a
+        # student who had attended nothing displayed as a green 100% "Good".
+        #   raw_pct   - share of classes actually attended, credit-weighted,
+        #               which drives the progress bar and the at-risk badge
+        #   pct       - the forgiveness-adjusted grade that goes to D2L
+        # raw_pct reuses score() with no allowance so that late credit and
+        # half-up rounding are applied identically in both columns; computing
+        # it in the template with integer division silently floored it and
+        # counted a late arrival as a full class.
+        _raw = score(total_sessions, _present, _late, _exc, 0,
+                     _policy.late_credit_percent)
         student_stats.append({"student": s, "attended": attended, "total": total_sessions,
                               "late": _late,
-                              "pct": _sc.pct, "excused": _sc.excused,
+                              "pct": _sc.pct, "raw_pct": _raw.pct,
+                              "has_sessions": total_sessions > 0,
+                              "excused": _sc.excused,
                               "unexcused": _sc.unexcused, "forgiven": _sc.forgiven,
                               "over_limit": _sc.unexcused_over_limit})
 

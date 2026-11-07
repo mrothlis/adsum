@@ -68,7 +68,15 @@ def check_no_personal_identifiers() -> None:
     pattern = re.compile(
         r"rothlisberger|drrothlisberger|colstate\.view|columbusstate|"
         r"stu_garver|young_melissa|csu_session|checkin_session|"
-        r"CSU Check-In|Attendance Check-In",
+        r"CSU Check-In|Attendance Check-In|"
+        # Added after an audit found all three committed in docs/DEPLOY.md
+        # while this check passed: the author's Windows username, his
+        # Cloudflare tunnel name, and the pre-rename database name. The claim
+        # that this check catches any personal identifier was false until
+        # they were listed.
+        r"mgrot|rupert|csu_checkin|EI-tunnel|"
+        # A Windows user path gives away whoever wrote the document.
+        r"C:\\\\Users\\\\[A-Za-z0-9._-]+|C:/Users/[A-Za-z0-9._-]+",
         re.I)
     hits = []
     for rel in tracked:

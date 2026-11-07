@@ -39,7 +39,52 @@
 
 <div class="card">
     <h2>Attendance Trend</h2>
-    <canvas id="attendanceChart" height="100"></canvas>
+    <p class="help-text" id="chart-desc">
+        One bar per class meeting, showing how many students were present. The
+        dashed line is the number enrolled. The same numbers are in the table
+        below, which is the version a screen reader can read.
+    </p>
+    <canvas id="attendanceChart" height="100" role="img"
+            aria-labelledby="chart-desc"></canvas>
+</div>
+
+<div class="card">
+    <h2>Numbers behind the chart</h2>
+    <div class="table-wrap">
+        <table class="table table-sticky">
+            <thead>
+                <tr>
+                    <th scope="col">Class date</th>
+                    <th scope="col">Present</th>
+                    <th scope="col">Enrolled</th>
+                    <th scope="col">Share present</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for label in session_labels %}
+                <tr>
+                    <td>{{ label }}</td>
+                    <td>{{ session_counts[loop.index0] }}</td>
+                    <td>{{ enrolled_count }}</td>
+                    <td>
+                        {% if enrolled_count %}
+                        {{ session_counts[loop.index0] * 100 // enrolled_count }}%
+                        {% else %}
+                        <span class="text-muted">not known</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4">
+                        No sessions yet. Start one from your dashboard when class begins,
+                        and the trend will build up here.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
 {% endblock %}
 
@@ -57,8 +102,8 @@ document.addEventListener('DOMContentLoaded', () => {
             datasets: [{
                 label: 'Students Present',
                 data: {{ session_counts | tojson }},
-                backgroundColor: 'rgba(34, 139, 230, 0.7)',
-                borderColor: 'rgba(34, 139, 230, 1)',
+                backgroundColor: 'rgba(25, 113, 194, 0.75)',
+                borderColor: 'rgba(25, 113, 194, 1)',
                 borderWidth: 1,
                 borderRadius: 4,
             }, {

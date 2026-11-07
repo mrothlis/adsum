@@ -8,7 +8,7 @@
         <p class="subtitle">Classroom Attendance Tracking</p>
 
         {% if error %}
-        <div class="alert alert-error">{{ error }}</div>
+        <div class="alert alert-error" role="alert" data-no-close="1">{{ error }}</div>
         {% endif %}
 
         <form method="post" action="/instructor/login" class="login-form">

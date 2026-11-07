@@ -1,0 +1,19 @@
+# Development and test dependencies.
+#
+# Install these on top of requirements.txt before running the test scripts or
+# the linter:
+#
+#     pip install -r requirements.txt -r requirements-dev.txt
+#
+# Nothing here is needed to run the server.
+
+# Linter. CI runs `ruff check app scripts run.py backup_db.py`, and that
+# command fails in a fresh virtualenv without this file, because ruff is
+# deliberately not a runtime dependency.
+ruff
+
+# HTTP client used by the four scripts that drive a live instance
+# (smoke_test, test_isolation, test_admin_separation, test_admin_page).
+# Also listed in requirements.txt, so this line is only here to make this
+# file self-sufficient.
+requests==2.34.2

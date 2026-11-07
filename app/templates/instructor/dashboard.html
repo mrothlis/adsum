@@ -29,7 +29,7 @@
 </div>
 {% endif %}
 
-<h2>My Courses</h2>
+<h2 id="my-courses">My Courses</h2>
 <div class="course-grid">
     {% for course in courses %}
     <div class="card course-card">
@@ -53,11 +53,44 @@
         {% endif %}
 
         <div class="course-actions">
-            <a href="/instructor/course/{{ course.id }}">Roster & Records</a>
+            <a href="/instructor/course/{{ course.id }}">Roster &amp; Records</a>
             <a href="/instructor/course/{{ course.id }}/analytics">Analytics</a>
-            <a href="/instructor/course/{{ course.id }}/export">Export CSV</a>
+            <a href="/instructor/course/{{ course.id }}/export">Download spreadsheet</a>
             <a href="/instructor/course/{{ course.id }}/settings">Settings</a>
         </div>
+    </div>
+    {% else %}
+    <div class="empty-state" style="grid-column: 1 / -1;">
+        <h3>No courses yet. That is normal on day one.</h3>
+        <p>
+            Adsum does not have a Create Course button, on purpose. A course
+            appears here the first time you open the Adsum link from inside
+            that course in D2L. D2L tells Adsum the course name, the code and
+            who you are, so nothing has to be typed twice.
+        </p>
+        <p><strong>Do this once per course:</strong></p>
+        <ol>
+            <li>In D2L, open the course.</li>
+            <li>Go to <strong>Content</strong>.</li>
+            <li>Choose <strong>Add Existing Activities</strong>, then
+                <strong>External Learning Tool</strong>.</li>
+            <li>Add the <strong>Adsum</strong> link.</li>
+            <li>Click the link once. Come back here and the course will be listed.</li>
+        </ol>
+        {% if user.is_admin %}
+        <p>
+            The link needs an LTI key and secret before it will launch. You are
+            an administrator, so you can set those now.
+        </p>
+        <p class="next-step">
+            <a href="/admin" class="btn btn-primary">Set the LTI key and secret</a>
+        </p>
+        {% else %}
+        <p>
+            If the link does not work, the LTI key and secret are not set yet.
+            Ask whoever administers this server to set them.
+        </p>
+        {% endif %}
     </div>
     {% endfor %}
 </div>

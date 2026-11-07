@@ -12,6 +12,9 @@ within a week.
 ## What this application holds
 
 Student names, institutional usernames and ID numbers, and attendance records.
+Also the IP address of each check-in, and on a course where the instructor has
+enabled the geofence, the distance of that check-in from the classroom. Raw
+coordinates are not kept.
 In the United States these are education records protected by FERPA, and
 equivalent rules apply elsewhere. Anyone deploying this is responsible for
 hosting it accordingly.
@@ -26,7 +29,7 @@ hosting it accordingly.
 - [ ] Served over HTTPS. QR tokens and session cookies travel in the clear
       otherwise.
 - [ ] The LTI consumer secret is unique, not a default, and is rotated on both
-      the app and the D2L side together.
+      the app and the D2L side together. It lives at `/admin`, not in `.env`.
 - [ ] Database file and `backups/` are not inside the web root and are backed
       up somewhere durable.
 - [ ] Only trusted people hold `is_admin`, which grants control of the shared
@@ -45,5 +48,13 @@ hosting it accordingly.
   instructor-only; exposing it would let anyone check in remotely.
 - **LTI 1.1.** OAuth 1.0a HMAC-SHA1 signatures are verified against the
   configured consumer secret. Launches with a bad signature are rejected.
-- **Location.** Raw GPS coordinates are never written to the database. Only
-  the computed distance and an in/out flag are stored.
+- **Location.** Nothing is collected unless an instructor enables the geofence
+  on a course. When it is enabled, the browser reports a position once, the
+  server computes the distance from the classroom, and only that distance and
+  an in/out flag are stored. The latitude and longitude are discarded. There
+  is no background or repeated location collection.
+  An audit found that an earlier version did write the coordinates to the
+  database, contradicting this file. That is fixed; the migration shipped with
+  the fix erases any coordinates captured before it, and
+  `scripts/test_security.py` fails the build if an attendance row ever holds
+  one again.

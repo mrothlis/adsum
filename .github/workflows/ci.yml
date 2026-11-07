@@ -40,6 +40,41 @@ jobs:
       - name: Verify a clean install
         run: python scripts/verify_install.py
 
+      # `alembic upgrade head` on a brand-new database used to die with
+      # NoSuchTableError: courses, because the migration history starts from
+      # an existing schema and contains no CREATE TABLE. The install guide
+      # told people to run it, and two readers hit that traceback. This
+      # asserts both paths: a fresh database gets built and stamped at head,
+      # and running it a second time changes nothing.
+      - name: Migrations are safe on an empty database
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///./ci-empty.db
+          SECRET_KEY: ci-empty-database-migration-check-key-0123
+          ADMIN_EMAIL: ci@example.edu
+          ADMIN_PASSWORD: CiEmptyDatabaseCheck123!
+        run: |
+          python -m alembic upgrade head
+          python - <<'PY'
+          import sqlite3, sys
+          db = sqlite3.connect("ci-empty.db")
+          tables = {r[0] for r in db.execute(
+              "SELECT name FROM sqlite_master WHERE type='table'")}
+          for required in ("courses", "instructors", "attendance_records",
+                           "lti_nonces", "alembic_version"):
+              if required not in tables:
+                  sys.exit(f"missing table after upgrade: {required}")
+          stamped = db.execute("SELECT version_num FROM alembic_version").fetchone()
+          if not stamped:
+              sys.exit("database was not stamped at head")
+          print(f"built {len(tables)} tables, stamped at {stamped[0]}")
+          PY
+          # Second run must be a no-op, not a replay.
+          python -m alembic upgrade head 2>&1 | tee second.log
+          if grep -q "Running upgrade" second.log; then
+            echo "a second upgrade re-ran migrations on an up-to-date database"
+            exit 1
+          fi
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -53,7 +88,7 @@ jobs:
         run: pip install ruff
 
       - name: Ruff
-        run: ruff check app scripts run.py backup_db.py
+        run: ruff check app scripts run.py backup_db.py alembic/env.py
 
   # The isolation tests are the ones that catch a privacy regression, so they
   # run against a real server with a seeded course rather than being skipped.

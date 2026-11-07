@@ -152,7 +152,7 @@
             whoever administers this server{% endif %} rather than here &mdash;
             changing them affects every instructor.
         </p>
-        <div class="card" style="background: var(--bg-muted, #f5f5f5);">
+        <div class="card" style="background: #f6f8fa;">
             <ol style="line-height: 1.8;">
                 <li>In D2L: your course &rarr; <b>Content</b> &rarr; <b>Add Existing Activities</b> &rarr; <b>External Learning Tool</b></li>
                 <li>Title: <code>Adsum</code></li>
@@ -176,8 +176,8 @@
     <button type="submit" class="btn btn-primary">Save Settings</button>
 </form>
 
-<div class="card" style="border:1px solid #dc3545;margin-top:1.5rem;">
-    <h2>⚠️ Reset Session Data</h2>
+<div class="card" style="border:1px solid var(--color-danger);margin-top:1.5rem;">
+    <h2><span aria-hidden="true">⚠️</span> Reset Session Data</h2>
     <p class="text-muted">Deletes <strong>all sessions and attendance records</strong> for this course. The roster, students, and settings are kept. Use at the start of a semester or to clear test data.</p>
     <form method="post" action="/instructor/course/{{ course.id }}/reset-data"
           onsubmit="return confirm('Delete ALL sessions and attendance for this course? This cannot be undone.');">

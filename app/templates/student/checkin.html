@@ -2,25 +2,57 @@
 {% block title %}Check In — Adsum{% endblock %}
 
 {% block content %}
+{#  Student-facing page. It loads no third-party resources, and it never shows
+    a student a technical reason. Tokens live 20 to 40 seconds, so an expired
+    code is the single most common thing that happens here: it has to say
+    plainly that they are not checked in, and give one thing to do next. #}
 <div class="checkin-container">
     <div class="card checkin-card">
-        <h1>📱 Check In</h1>
 
         {% if success %}
-        <div class="checkin-result success">
-            <div class="result-icon">✅</div>
+        <h1><span aria-hidden="true">📱</span> Check In</h1>
+        <div class="checkin-result success" role="status">
+            <div class="result-icon" aria-hidden="true">✅</div>
             <p>{{ message }}</p>
         </div>
         {% if warnings %}
         {% for w in warnings %}
-        <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:0.75rem 1rem;margin-top:0.75rem;color:#92400e;font-size:0.9rem;">
-            ⚠️ {{ w }}
+        <div class="alert alert-warning alert-permanent" role="alert">
+            <span aria-hidden="true">⚠️</span> {{ w }}
         </div>
         {% endfor %}
         {% endif %}
+
         {% elif errors %}
-        <div class="checkin-result error">
-            <div class="result-icon">❌</div>
+        {# Is every reason a dead or unreadable code? If so this is the normal
+           "you scanned the old one" case and gets the plain-language screen. #}
+        {% set ns = namespace(all_code = true) %}
+        {% for err in errors %}
+            {% set low = err | lower %}
+            {% if not ('token' in low or 'signature' in low or 'expired' in low) %}
+                {% set ns.all_code = false %}
+            {% endif %}
+        {% endfor %}
+
+        {% if ns.all_code %}
+        <h1>Not checked in</h1>
+        <div class="checkin-result error" role="alert">
+            <div class="result-icon" aria-hidden="true">🔄</div>
+            <p><strong>You are not checked in yet.</strong></p>
+            <p>
+                The code on the screen changes every 20 seconds. The one you
+                scanned has already changed. Point your camera at the code
+                showing right now.
+            </p>
+        </div>
+        <a href="/student/checkin" class="btn btn-primary btn-block btn-lg">Scan again</a>
+        <p class="ask-instructor">Still not working? Tell your instructor before you leave.</p>
+
+        {% else %}
+        <h1>Not checked in</h1>
+        <div class="checkin-result error" role="alert">
+            <div class="result-icon" aria-hidden="true">❌</div>
+            <p><strong>You are not checked in yet.</strong></p>
             {% for err in errors %}
             <p>{{ err }}</p>
             {% endfor %}
@@ -31,20 +63,26 @@
             <input type="hidden" name="gps_lat" id="gps_lat">
             <input type="hidden" name="gps_lon" id="gps_lon">
             <button type="submit" class="btn btn-primary btn-block btn-lg" id="checkin-btn">
-                ✅ Try Again
+                <span aria-hidden="true">✅</span> Try again
             </button>
-            <p id="geo-error" style="display:none;color:#dc3545;text-align:center;margin-top:0.75rem;">
-                📍 Location is required to check in. Allow location access, then tap Check In again.
+            <p id="geo-error" class="text-danger text-center" style="display:none;margin-top:0.75rem;" role="alert">
+                <span aria-hidden="true">📍</span> Location is required to check in. Allow location access, then tap Try again.
             </p>
         </form>
+        {% else %}
+        <a href="/student/checkin" class="btn btn-primary btn-block btn-lg">Scan again</a>
         {% endif %}
+        <p class="ask-instructor">Still not working? Tell your instructor before you leave.</p>
+        {% endif %}
+
         {% elif identified_student %}
-        <div class="text-center mb-3">
+        <h1><span aria-hidden="true">📱</span> Check In</h1>
+        {% if token %}
+        <div class="text-center">
             <p class="text-muted">Welcome, <strong>{{ identified_student.name }}</strong></p>
-            {% if token %}
             <p class="text-muted small">One tap to check in.</p>
             {% if geofence_required %}
-            <p class="text-muted small">📍 Your location is checked once against the classroom area and logged with your attendance.</p>
+            <p class="text-muted small"><span aria-hidden="true">📍</span> Your location is checked once against the classroom area and logged with your attendance.</p>
             {% endif %}
         </div>
         <form method="post" action="/student/checkin" id="checkin-form" data-geofence="{{ '1' if geofence_required else '0' }}">
@@ -52,51 +90,56 @@
             <input type="hidden" name="gps_lat" id="gps_lat">
             <input type="hidden" name="gps_lon" id="gps_lon">
             <button type="submit" class="btn btn-primary btn-block btn-lg" id="checkin-btn">
-                ✅ Check In
+                <span aria-hidden="true">✅</span> Check In
             </button>
-            <p id="geo-error" style="display:none;color:#dc3545;text-align:center;margin-top:0.75rem;">
-                📍 Location is required to check in. Allow location access, then tap Check In again.
+            <p id="geo-error" class="text-danger text-center" style="display:none;margin-top:0.75rem;" role="alert">
+                <span aria-hidden="true">📍</span> Location is required to check in. Allow location access, then tap Check In again.
             </p>
         </form>
-            {% elif resumed_course %}
-            <div style="background:#d1e7dd;border:1px solid #0f5132;border-radius:8px;padding:1rem;text-align:center;">
-                <strong>You're signed in.</strong><br>
-                Scan the QR code on screen once more to check in to
-                <strong>{{ resumed_course.name }}</strong>.
-            </div>
-            <p class="text-muted small text-center" style="margin-top:0.75rem;">
-                The code changes every few seconds, so the one you scanned before
-                you signed in has already expired. This second scan is the last step.
-            </p>
-            {% else %}
-            <p class="text-muted small">You're all set. Scan the QR code shown in class to check in.</p>
+
+        {% elif resumed_course %}
+        <div class="alert alert-success alert-permanent" role="status">
+            <strong>You are signed in.</strong><br>
+            One more scan and you are done. Scan the code on screen now to check in to
+            <strong>{{ resumed_course.name }}</strong>.
         </div>
-            {% endif %}
+        <p class="text-muted small text-center">
+            The code changes every 20 seconds, so the one you scanned before you
+            signed in has already changed. This second scan is the last step.
+        </p>
+        <a href="/student/checkin" class="btn btn-primary btn-block btn-lg">Scan again</a>
+        <p class="ask-instructor">Still not working? Tell your instructor before you leave.</p>
+
         {% else %}
-                <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:1rem;margin-bottom:1rem;text-align:center;">
-                    <strong>First time?</strong><br>
-                    {% if d2l_course_url %}
-                    1. Tap <strong>Sign in with D2L</strong> below<br>
-                    2. Sign in if asked, then scan the QR code again
-                    {% else %}
-                    1. Open <strong>D2L on your phone</strong><br>
-                    2. Go to this course → Content → <strong>Adsum</strong><br>
-                    3. Then come back and scan the QR
-                    {% endif %}
-                </div>
-                {% if d2l_course_url %}
-                <!-- Same tab deliberately: opening D2L in a new tab leaves the
-                     student on a page whose token expires while they sign in. -->
-                <a href="{{ d2l_course_url }}" class="btn btn-primary btn-block btn-lg" style="margin-top:0.5rem;">
-                    Sign in with D2L
-                </a>
-                {% else %}
-                <p class="text-center text-muted">Scan the QR code, then tap "Check In" below.</p>
-                <button type="button" class="btn btn-secondary btn-block btn-lg" disabled>
-                    Open D2L on phone first
-                </button>
-                {% endif %}
-                {% endif %}
+        <p class="text-muted">You are signed in. Scan the code shown in class to check in.</p>
+        <a href="/student/checkin" class="btn btn-primary btn-block btn-lg">Scan again</a>
+        <p class="ask-instructor">Still not working? Tell your instructor before you leave.</p>
+        {% endif %}
+
+        {% else %}
+        <h1><span aria-hidden="true">📱</span> Check In</h1>
+        {# Not signed in yet. First time in this course, the student has to open
+           Adsum from inside D2L once so we know who they are. #}
+        <div class="alert alert-warning alert-permanent" role="status" data-no-close="1">
+            <strong>First time in this class?</strong><br>
+            {% if d2l_course_url %}
+            1. Tap <strong>Sign in with D2L</strong> below<br>
+            2. Sign in if asked, then scan the code again
+            {% else %}
+            1. Open <strong>D2L on your phone</strong><br>
+            2. Go to this course, then Content, then <strong>Adsum</strong><br>
+            3. Come back here and scan the code again
+            {% endif %}
+        </div>
+        {% if d2l_course_url %}
+        <!-- Same tab deliberately: opening D2L in a new tab leaves the
+             student on a page whose token expires while they sign in. -->
+        <a href="{{ d2l_course_url }}" class="btn btn-primary btn-block btn-lg" style="margin-top:0.5rem;">
+            Sign in with D2L
+        </a>
+        {% endif %}
+        <p class="ask-instructor">Still not working? Tell your instructor before you leave.</p>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

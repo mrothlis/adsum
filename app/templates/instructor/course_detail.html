@@ -9,213 +9,307 @@
             {% if course.course_code %}<span class="badge">{{ course.course_code }}</span>{% endif %}
         </div>
         <div class="page-actions">
-            <a href="/instructor/course/{{ course.id }}/analytics" class="btn btn-outline">📊 Analytics</a>
-            <a href="/instructor/course/{{ course.id }}/export" class="btn btn-outline">📥 Export CSV</a>
-            <a href="/instructor/course/{{ course.id }}/settings" class="btn btn-outline">⚙️ Settings</a>
+            <a href="/instructor/course/{{ course.id }}/analytics" class="btn btn-outline"><span aria-hidden="true">📊</span> Analytics</a>
+            <a href="/instructor/course/{{ course.id }}/settings" class="btn btn-outline"><span aria-hidden="true">⚙️</span> Settings</a>
         </div>
     </div>
 </div>
 
 {# ── D2L Integration Card ── #}
 <div class="card">
-    <h2>🔗 D2L Integration</h2>
+    <h2><span aria-hidden="true">🔗</span> D2L Integration</h2>
 
     {% if import_result and import_result.error is defined %}
-    <div class="alert alert-danger" style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;color:#991b1b;">
-        ❌ {{ import_result.error }}
+    <div class="alert alert-danger" role="alert">
+        <span aria-hidden="true">❌</span> {{ import_result.error }}
     </div>
     {% elif import_result %}
-    <div class="alert alert-success" style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;color:#166534;">
-        ✅ Import complete: <strong>{{ import_result.new }}</strong> new students,
+    {# Not a flash. This count exists nowhere else, so it stays on screen
+       until the professor closes it. #}
+    <div class="alert alert-success alert-permanent" role="status">
+        <span aria-hidden="true">✅</span> Import complete: <strong>{{ import_result.new }}</strong> new students,
         <strong>{{ import_result.updated }}</strong> updated,
         <strong>{{ import_result.enrolled }}</strong> newly enrolled.
     </div>
     {% endif %}
 
     {% if request.query_params.get('notice') %}
-    <div class="alert alert-success" style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;color:#166534;">
-        ✅ {{ request.query_params.get('notice') }}
+    <div class="alert alert-success flash" role="status">
+        <span aria-hidden="true">✅</span> {{ request.query_params.get('notice') }}
     </div>
     {% endif %}
 
     {% if request.query_params.get('error') %}
-    <div class="alert alert-danger" style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;color:#991b1b;">
-        ❌ {{ request.query_params.get('error') }}
+    <div class="alert alert-danger" role="alert">
+        <span aria-hidden="true">❌</span> {{ request.query_params.get('error') }}
     </div>
     {% endif %}
 
+    {% if sessions|length == 0 %}
+    {# Standing notice. It describes how the app is configured, not something
+       that just happened, so it must never be removed on a timer. #}
+    <div class="alert alert-warning alert-permanent" role="alert">
+        <span aria-hidden="true">⚠️</span> <strong>No sessions recorded for this course.</strong> Exporting is blocked, because
+        importing an empty file into D2L would erase the attendance history held there.
+        If you expected sessions, restore from a D2L grade export below.
+    </div>
+    {% endif %}
+
+    <h3 style="font-size:1rem;margin-bottom:0.5rem;">Send attendance to D2L</h3>
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+        <a href="/instructor/course/{{ course.id }}/export-d2l" class="btn btn-primary">
+            <span aria-hidden="true">📥</span> Export for D2L gradebook (recommended)
+        </a>
+        <a href="/instructor/course/{{ course.id }}/export-d2l?detail=0" class="btn btn-outline">
+            Export grade column only, no per-date history
+        </a>
+        <a href="/instructor/course/{{ course.id }}/export" class="btn btn-outline">
+            Download spreadsheet for my own records
+        </a>
+    </div>
+    <p class="help-text">
+        The recommended export carries two columns. <strong>Attendance</strong> is the
+        numeric grade. <strong>Attendance Detail</strong> is a text column holding every
+        class date and its status in one cell, so D2L keeps the whole record without one
+        column per meeting. Text items are not counted in the final grade. Because that
+        one cell holds the full history, a D2L grade export is a complete backup, and
+        <strong>Restore from D2L</strong> below rebuilds this app from it. The
+        grade-column-only file leaves out that history, so use it only if your D2L
+        course already has an Attendance item you do not want changed. The spreadsheet
+        is for you, not for D2L.
+    </p>
+
+    {# These steps used to sit inside a collapsed <details>. The Maximum Points
+       step is the one that breaks every import, so it is now on screen by
+       default and styled as a warning. #}
+    <h3 style="font-size:1rem;margin-top:1.25rem;">Putting the file into the D2L gradebook</h3>
+    <ol class="checklist">
+        <li>Click <strong>Export for D2L gradebook (recommended)</strong> above and save the file.</li>
+        <li>In D2L go to <strong>Grades</strong>, then <strong>Import</strong>. Choose the file
+            and tick <em>Create new grade item when an unrecognized item is referenced</em>.
+            Tick that on your first import only.</li>
+        <li class="step-warning">
+            <span aria-hidden="true">⚠️</span> On <strong>New Grade Item Properties</strong>, set
+            <strong>Maximum Points to 100</strong> for <em>Attendance</em>. D2L defaults it to 10,
+            which shows every student as 1000%. <em>Attendance Detail</em> is a Text item and
+            needs no properties.
+        </li>
+        <li>Continue through the preview, then click <strong>Import</strong>.</li>
+    </ol>
+    <p class="help-text">
+        Each import overwrites the Attendance column, it does not add to it. The export is
+        always a running total for the semester, so a weekly import needs no tidying up.
+        Scores are the percentage of sessions attended after the first
+        {{ allowed_absences }} unexcused absences are forgiven. Excused absences are dropped
+        from the count entirely. Anyone not on the D2L classlist is skipped as an
+        unrecognized user, and that row is safe to ignore.
+    </p>
+
+    <hr>
+
+    <h3 style="font-size:1rem;margin-bottom:0.5rem;">Roster and recovery</h3>
     <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-end;">
         <form method="post" action="/instructor/course/{{ course.id }}/import-roster"
               enctype="multipart/form-data" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
             <div class="form-group" style="margin-bottom:0;">
-                <label for="roster_file" style="font-size:0.85rem;font-weight:600;">Import D2L Roster (CSV)</label>
+                <label for="roster_file">Import your D2L classlist (CSV)</label>
                 <input type="file" id="roster_file" name="roster_file" accept=".csv" required
-                       style="font-size:0.9rem;">
+                       aria-describedby="roster_file_help" style="font-size:0.9rem;">
+                <small id="roster_file_help" class="help-text">
+                    Export the classlist from D2L, then load it here. Existing students are
+                    matched on their D2L username and updated, not duplicated.
+                </small>
             </div>
-            <button type="submit" class="btn btn-primary">📤 Import Roster</button>
+            <button type="submit" class="btn btn-primary"><span aria-hidden="true">📤</span> Import classlist</button>
         </form>
-        <a href="/instructor/course/{{ course.id }}/export-d2l" class="btn btn-outline">📥 Export for D2L Gradebook</a>
-        <a href="/instructor/course/{{ course.id }}/export-d2l?detail=0" class="btn btn-outline"
-           title="Grade only, without the per-date Attendance Detail column">Grade only</a>
         <form method="post" action="/instructor/course/{{ course.id }}/restore-from-d2l"
               enctype="multipart/form-data" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
             <div class="form-group" style="margin-bottom:0;">
-                <label for="grades_file" style="font-size:0.85rem;font-weight:600;">Restore from D2L (grade export CSV)</label>
-                <input type="file" id="grades_file" name="grades_file" accept=".csv" required style="font-size:0.9rem;">
+                <label for="grades_file">Restore from D2L (grade export CSV)</label>
+                <input type="file" id="grades_file" name="grades_file" accept=".csv" required
+                       aria-describedby="grades_file_help" style="font-size:0.9rem;">
+                <small id="grades_file_help" class="help-text">
+                    Rebuilds this course's sessions and attendance from the Attendance Detail
+                    column in a D2L grade export. Use this if you lose the app's data.
+                </small>
             </div>
-            <button type="submit" class="btn btn-outline"
-                    title="Rebuild this course's attendance from the Attendance Detail column in a D2L grade export">
-                ♻️ Restore from D2L
+            <button type="submit" class="btn btn-outline">
+                <span aria-hidden="true">♻️</span> Restore from D2L
             </button>
         </form>
     </div>
-
-    {% if sessions|length == 0 %}
-    <div class="alert" style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:0.75rem 1rem;margin-top:0.75rem;color:#92400e;">
-        ⚠️ <strong>No sessions recorded for this course.</strong> Exporting is blocked, because
-        importing an empty file into D2L would erase the attendance history held there.
-        If you expected sessions, restore from a D2L grade export above.
-    </div>
-    {% endif %}
-    <details style="margin-top:0.75rem;font-size:0.85rem;" class="text-muted">
-        <summary style="cursor:pointer;">How to put this into the D2L gradebook</summary>
-        <ol style="margin:0.5rem 0 0 1.1rem;line-height:1.6;">
-            <li>Click <strong>Export for D2L Gradebook</strong> above and save the CSV.</li>
-            <li>In D2L: <strong>Grades → Import</strong>, choose the file, and tick
-                <em>“Create new grade item when an unrecognized item is referenced”</em>.</li>
-            <li>On <strong>New Grade Item Properties</strong>, set <strong>Maximum Points to 100</strong>
-                for <em>Attendance</em>. D2L defaults this to 10, which would show every student as 1000%.
-                <em>Attendance Detail</em> is a Text item and needs no properties.</li>
-            <li>Continue through the preview, then click <strong>Import</strong>.</li>
-        </ol>
-        <p style="margin:0.5rem 0 0 0;">
-            The export carries two columns: <strong>Attendance</strong>, the numeric grade, and
-            <strong>Attendance Detail</strong>, a text column holding every class date and its
-            status in one cell — so D2L keeps the full record without one column per meeting.
-            Text items are not counted in the final grade. Because that column holds the whole
-            history, a D2L grade export is a complete backup — <strong>Restore from D2L</strong>
-            rebuilds this app from it, so D2L stays the system of record.
-            Scores are the percentage of sessions attended, after the first
-            {{ allowed_absences }} unexcused absences are forgiven. Excused absences are
-            dropped from the count entirely. Anyone not on the D2L classlist is skipped
-            as an “unrecognized user” — that row is safe to ignore.
-        </p>
-    </details>
 </div>
 
 <div class="card">
     <h2>Enrolled Students ({{ student_stats|length }})</h2>
-    <table class="table">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Student ID</th>
-                <th>D2L Username</th>
-                <th>D2L</th>
-                <th>Sessions Attended</th>
-                <th title="Unexcused absences used, against the allowance">Absences</th>
-                <th>Attendance %</th>
-                <th>Status</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for s in student_stats %}
-            <tr class="{% if s.pct < 75 %}row-warning{% endif %}">
-                <td>
-                    <form method="post" id="edit-{{ s.student.id }}"
-                          action="/instructor/course/{{ course.id }}/edit-student/{{ s.student.id }}"
-                          style="margin:0;"></form>
-                    <input form="edit-{{ s.student.id }}" type="text" name="name"
-                           value="{{ s.student.name }}" required
-                           style="width:100%;border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:4px;"
-                           onfocus="this.style.borderColor='#cbd5e1';this.style.background='#fff';">
-                </td>
-                <td>
-                    <input form="edit-{{ s.student.id }}" type="text" name="student_id_number"
-                           value="{{ s.student.student_id_number }}"
-                           style="width:100%;border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:4px;"
-                           onfocus="this.style.borderColor='#cbd5e1';this.style.background='#fff';">
-                </td>
-                <td>
-                    <input form="edit-{{ s.student.id }}" type="text" name="d2l_username"
-                           value="{{ s.student.d2l_username or '' }}" placeholder="d2l username"
-                           title="Must match the Username column of your D2L classlist — this is what the gradebook import matches on."
-                           style="width:100%;border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:4px;"
-                           onfocus="this.style.borderColor='#cbd5e1';this.style.background='#fff';">
-                </td>
-                <td>
-                    {% if s.student.d2l_verified %}
-                    <span title="Verified in D2L roster" style="color:#16a34a;">✅</span>
-                    {% else %}
-                    <span title="Not in D2L roster — verify enrollment" style="color:#f59e0b;">⚠️</span>
-                    {% endif %}
-                </td>
-                <td>{{ s.attended }} / {{ s.total }}</td>
-                <td>
-                    {{ s.unexcused }}{% if s.over_limit > 0 %}
-                    <span class="badge badge-danger" title="{{ s.over_limit }} beyond the allowance">+{{ s.over_limit }} over</span>
-                    {% endif %}
-                    {% if s.excused %}<span class="text-muted" title="Excused, not counted">({{ s.excused }} exc.)</span>{% endif %}
-                </td>
-                <td>
-                    <div class="mini-progress">
-                        <div class="mini-progress-fill {% if s.pct >= 90 %}bg-success{% elif s.pct >= 75 %}bg-warning{% else %}bg-danger{% endif %}"
-                             style="width: {{ s.pct }}%"></div>
-                    </div>
-                    <span>{{ s.pct }}%</span>
-                </td>
-                <td>
-                    {% if s.pct < 75 %}
-                    <span class="badge badge-danger">At Risk</span>
-                    {% elif s.pct < 90 %}
-                    <span class="badge badge-warning">Watch</span>
-                    {% else %}
-                    <span class="badge badge-success">Good</span>
-                    {% endif %}
-                </td>
-                <td style="white-space:nowrap;">
-                    <button form="edit-{{ s.student.id }}" type="submit" class="btn btn-sm btn-primary">Save</button>
-                    <form method="post"
-                          action="/instructor/course/{{ course.id }}/remove-student/{{ s.student.id }}"
-                          onsubmit="return confirm('Remove {{ s.student.name }} from this roster? Their attendance records for this course are deleted too.');"
-                          style="margin:0;display:inline;">
-                        <button type="submit" class="btn btn-sm btn-danger">Remove</button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <p class="help-text" id="roster-caption">
+        <strong>Attended %</strong> is the plain share of classes the student was in the
+        room for. It drives the bar and the status. <strong>Grade %</strong> is what goes
+        to the D2L gradebook, after the first {{ allowed_absences }} unexcused
+        {{ 'absence' if allowed_absences == 1 else 'absences' }}
+        {{ 'is' if allowed_absences == 1 else 'are' }} forgiven, so it is normally the
+        higher of the two. Excused absences are dropped from the count entirely. Edit a
+        name, ID or username in the table and press Save on that row.
+    </p>
+
+    <button type="button" class="btn btn-outline btn-sm col-toggle"
+            data-toggle-columns aria-pressed="false">Show ID and D2L username</button>
+
+    <div class="table-wrap">
+        <table class="table table-sticky" aria-describedby="roster-caption">
+            <thead>
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col" class="col-optional">Student ID</th>
+                    <th scope="col" class="col-optional">D2L Username</th>
+                    <th scope="col">D2L list</th>
+                    <th scope="col">Attended</th>
+                    <th scope="col">Absences
+                        <span class="th-note">unexcused, allowance {{ allowed_absences }}</span>
+                    </th>
+                    <th scope="col">Attended %
+                        <span class="th-note">nothing forgiven</span>
+                    </th>
+                    <th scope="col">Grade %
+                        <span class="th-note">to D2L, {{ allowed_absences }} forgiven</span>
+                    </th>
+                    <th scope="col">Status</th>
+                    <th scope="col"><span class="sr-only">Row actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in student_stats %}
+                {# The bar, the status and the row highlight all come from the raw
+                   attended share, never from the forgiveness-adjusted grade. A
+                   student who has attended nothing used to show a full green bar at
+                   100% with a 'Good' badge, which is the opposite of the truth and
+                   the exact case this screen exists to catch. #}
+                {# Computed in app/routes/instructor.py as s.raw_pct, not here:
+                   integer division floored the figure and counted a late
+                   arrival as a full class, so the two percentage columns
+                   disagreed about both rounding and late credit. #}
+                {% set raw_pct = s.raw_pct if s.has_sessions else None %}
+                <tr class="{% if raw_pct is not none and raw_pct < 75 %}row-warning{% endif %}">
+                    <td>
+                        <form method="post" id="edit-{{ s.student.id }}"
+                              action="/instructor/course/{{ course.id }}/edit-student/{{ s.student.id }}"
+                              style="margin:0;"></form>
+                        <input form="edit-{{ s.student.id }}" type="text" name="name"
+                               class="cell-input" value="{{ s.student.name }}" required
+                               aria-label="Name for {{ s.student.name }}">
+                    </td>
+                    <td class="col-optional">
+                        <input form="edit-{{ s.student.id }}" type="text" name="student_id_number"
+                               class="cell-input" value="{{ s.student.student_id_number }}"
+                               aria-label="Student ID for {{ s.student.name }}">
+                    </td>
+                    <td class="col-optional">
+                        <input form="edit-{{ s.student.id }}" type="text" name="d2l_username"
+                               class="cell-input" value="{{ s.student.d2l_username or '' }}"
+                               placeholder="d2l username"
+                               aria-label="D2L username for {{ s.student.name }}">
+                    </td>
+                    <td>
+                        {% if s.student.d2l_verified %}
+                        <span class="badge badge-success"><span aria-hidden="true">✅</span> Listed</span>
+                        {% else %}
+                        <span class="badge badge-warning"><span aria-hidden="true">⚠️</span> Not listed</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ s.attended }} / {{ s.total }}</td>
+                    <td>
+                        {{ s.unexcused }}{% if s.over_limit > 0 %}
+                        <span class="badge badge-danger">{{ s.over_limit }} over<span class="sr-only"> the allowance</span></span>
+                        {% endif %}
+                        {% if s.excused %}<span class="th-note">{{ s.excused }} excused, not counted</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if raw_pct is none %}
+                        <span class="text-muted">no sessions yet</span>
+                        {% else %}
+                        <div class="mini-progress">
+                            <div class="mini-progress-fill {% if raw_pct >= 90 %}bg-success{% elif raw_pct >= 75 %}bg-warning{% else %}bg-danger{% endif %}"
+                                 style="width: {{ raw_pct }}%"></div>
+                        </div>
+                        <span>{{ raw_pct }}%</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <strong>{{ s.pct }}%</strong>
+                        {% if raw_pct is not none and s.pct > raw_pct %}
+                        <span class="th-note">{{ s.forgiven | round | int }} forgiven</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if raw_pct is none %}
+                        <span class="badge badge-muted">No data</span>
+                        {% elif raw_pct < 75 %}
+                        <span class="badge badge-danger">At Risk</span>
+                        {% elif raw_pct < 90 %}
+                        <span class="badge badge-warning">Watch</span>
+                        {% else %}
+                        <span class="badge badge-success">Good</span>
+                        {% endif %}
+                    </td>
+                    <td style="white-space:nowrap;">
+                        <button form="edit-{{ s.student.id }}" type="submit" class="btn btn-sm btn-primary">Save</button>
+                        <form method="post"
+                              action="/instructor/course/{{ course.id }}/remove-student/{{ s.student.id }}"
+                              onsubmit="return confirm('Remove {{ s.student.name }} from this roster? Their attendance records for this course are deleted too.');"
+                              style="margin:0;display:inline;">
+                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                    aria-label="Remove {{ s.student.name }} from this roster">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="10">
+                        No students yet. Import your D2L classlist above, or let students
+                        enrol themselves the first time they scan.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <div class="card">
     <h2>Session History ({{ sessions|length }})</h2>
-    <table class="table">
-        <thead>
-            <tr>
-                <th>Date</th>
-                <th>Started</th>
-                <th>Ended</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for s in sessions %}
-            <tr>
-                <td><a href="/instructor/session/{{ s.id }}">{{ s.started_at | localtime('%a %b %-d, %Y') }}</a></td>
-                <td>{{ s.started_at | localtime('%H:%M') }}</td>
-                <td>{{ s.ended_at | localtime('%H:%M') }}</td>
-                <td>
-                    {% if s.ended_at is none %}
-                    <span class="badge badge-success">Active</span>
-                    {% else %}
-                    <span class="badge badge-muted">Completed</span>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">Started</th>
+                    <th scope="col">Ended</th>
+                    <th scope="col">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in sessions %}
+                <tr>
+                    <td><a href="/instructor/session/{{ s.id }}">{{ s.started_at | localtime('%a %b %-d, %Y') }}</a></td>
+                    <td>{{ s.started_at | localtime('%H:%M') }}</td>
+                    <td>{{ s.ended_at | localtime('%H:%M') }}</td>
+                    <td>
+                        {% if s.ended_at is none %}
+                        <span class="badge badge-success">Active now</span>
+                        {% else %}
+                        <span class="badge badge-muted">Completed</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4">
+                        No sessions yet. Start one from your dashboard when class begins.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
 {% endblock %}

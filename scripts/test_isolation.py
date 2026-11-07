@@ -52,7 +52,7 @@ def _db_path():
     configured URL keeps this script working on any install.
     """
     url = os.getenv("DATABASE_URL") or _from_env_file(
-        "DATABASE_URL", "sqlite+aiosqlite:///./csu_checkin_v2.db")
+        "DATABASE_URL", "sqlite+aiosqlite:///./adsum.db")
     path = url.split("///")[-1] if "///" in url else url
     if not os.path.isabs(path):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

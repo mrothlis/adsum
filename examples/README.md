@@ -16,6 +16,10 @@ The columns that matter:
 
 Extra columns are ignored, so an unmodified D2L export works as-is.
 
+Import it from the course page, in the roster import form. The course itself
+only exists after the first LTI launch has created it: see section 6 of
+[../docs/INSTALL.md](../docs/INSTALL.md).
+
 > **D2L truncates usernames and emails to 20 characters.** A long username
 > arrives shortened, and that shortened form is the real identity for both LTI
 > launches and gradebook imports. Do not "correct" it by hand.

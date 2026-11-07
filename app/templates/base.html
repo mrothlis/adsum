@@ -8,15 +8,19 @@
     {% block head %}{% endblock %}
 </head>
 <body>
-    <nav class="navbar">
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <nav class="navbar" aria-label="Main">
         <div class="nav-brand">
-            <a href="/">🎓 Adsum</a>
+            <a href="/"><span aria-hidden="true">🎓</span> Adsum</a>
         </div>
         <div class="nav-links">
             {% if user %}
-                <span class="nav-user">{{ user.name }}</span>
+                <span class="nav-user">Signed in as {{ user.name }}</span>
                 {% if user.role == 'instructor' %}
-                    <a href="/instructor/dashboard">Dashboard</a>
+                    <a href="/instructor/dashboard"{% if request.url.path == '/instructor/dashboard' %} aria-current="page"{% endif %}>Dashboard</a>
+                    {# No aria-current here on purpose. scripts/test_admin_page.py asserts the
+                       exact string <a href="/admin">Admin</a>, and an extra attribute fails the
+                       build. Change the test first if you want the marker here too. #}
                     {% if user.is_admin %}<a href="/admin">Admin</a>{% endif %}
                     <a href="/instructor/logout">Logout</a>
                 {% endif %}
@@ -24,7 +28,7 @@
         </div>
     </nav>
 
-    <main class="container">
+    <main class="container" id="main">
         {% block content %}{% endblock %}
     </main>
 

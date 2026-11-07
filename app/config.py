@@ -28,7 +28,11 @@ class Settings:
     ADMIN_PASSWORD: str = ""
     ADMIN_EMAIL: str = "admin@example.edu"
     SEED_DEMO: bool = False
-    HOST: str = "0.0.0.0"
+    # Loopback by default. 0.0.0.0 used to be the default, which meant the
+    # "local try-out" in the README was reachable from the whole network over
+    # plain HTTP before anyone had set a password they cared about. A real
+    # deployment behind a proxy or tunnel sets this explicitly.
+    HOST: str = os.getenv("HOST", "127.0.0.1")
     PORT: int = 8000
     # Safe by default: DEBUG leaks tracebacks to users.
     DEBUG: bool = False

@@ -11,8 +11,12 @@
         const btn = document.getElementById('checkin-btn');
         const err = document.getElementById('geo-error');
         if (!navigator.geolocation) { err.style.display = 'block'; return; }
+        // Remember the label. On the retry screen the button says Try again,
+        // not Check In, and putting the wrong word back is confusing.
+        const label = btn.innerHTML;
         btn.disabled = true;
-        btn.textContent = '📍 Getting your location...';
+        btn.setAttribute('aria-busy', 'true');
+        btn.textContent = 'Getting your location...';
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 document.getElementById('gps_lat').value = pos.coords.latitude;
@@ -23,7 +27,8 @@
             () => {
                 err.style.display = 'block';
                 btn.disabled = false;
-                btn.textContent = '✅ Check In';
+                btn.removeAttribute('aria-busy');
+                btn.innerHTML = label;
             },
             { timeout: 10000, maximumAge: 30000, enableHighAccuracy: true }
         );
