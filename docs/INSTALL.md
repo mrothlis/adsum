@@ -328,12 +328,12 @@ When you are done:
 > | --- | --- |
 > | Sept 2026 | D2L announced its intent to end support for LTI 1.1. |
 > | Oct 2026 | Formal customer notification. |
-> | **Feb 2027** (release 20.27.2) | Customers can **no longer configure or deploy new LTI 1.1 integrations** through the Brightspace UI, and the Valence API for creating legacy LTI tool providers is removed. |
+> | **Feb 2027** | Customers can **no longer configure or deploy new LTI 1.1 integrations** through the Brightspace UI, and the Valence API for creating legacy LTI tool providers is removed. Links already installed keep working. |
 > | Mar 2027 | Institutions may opt in to disabling LTI 1.1 early. |
-> | **Late 2027** | **LTI 1.1 launches stop working entirely.** |
+> | **Sept 2027** | **LTI 1.1 launches stop working entirely.** |
 >
 > What this means for you: following this section today works, and a link
-> created before the February 2027 release keeps launching until late 2027.
+> created before February 2027 keeps launching until September 2027.
 > After that release you cannot create a new LTI 1.1 link at all, and your
 > institution may have switched 1.1 off sooner. Adsum does not support LTI 1.3
 > yet; that is the project's next step, not a shipped feature, and 1.3
@@ -342,9 +342,14 @@ When you are done:
 > administrator early, and give them
 > [BRIGHTSPACE-ADMIN.md](BRIGHTSPACE-ADMIN.md).
 >
-> D2L's pages disagree on the final date: the KB article says September 2027,
-> the High Impact Changes Timeline says release 20.27.08, and the press release
-> says October 2027. Treat it as late 2027.
+> The plan for the 1.3 version, including the administrator's install
+> procedure and the exact permissions it would request, is in
+> [LTI-1.3-PLAN.md](LTI-1.3-PLAN.md). A packet written for an institutional
+> IT/security review is in [IT-REVIEW.md](IT-REVIEW.md).
+>
+> The dates above come from D2L's deprecation plan, last updated 8 Oct 2026.
+> D2L's other pages have at times given release numbers instead; where they
+> disagree, the deprecation plan is the article maintained for this purpose.
 >
 > Sources:
 > [LTI 1.1 deprecation plan](https://community.d2l.com/brightspace/kb/articles/25994-lti-1-1-deprecation-plan),

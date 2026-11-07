@@ -1,0 +1,25 @@
+# Dependency update monitoring.
+#
+# This exists so upstream security advisories arrive as pull requests rather
+# than being noticed by accident. It covers THIS repository's pinned
+# dependencies only. It does not patch an installed instance: applying an
+# update to a running server is the operator's deploy step, which is stated
+# plainly in docs/IT-REVIEW.md rather than implied away.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for routine bumps. Security advisories still arrive on their
+      # own, so grouping does not hide anything urgent.
+      python-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

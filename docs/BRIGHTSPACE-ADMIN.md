@@ -124,11 +124,16 @@ What IT is being asked for, if anything:
 
 **Soon (LTI 1.3).** D2L is retiring LTI 1.1. New 1.1 integrations cannot be
 configured in Brightspace after the February 2027 release, and 1.1 launches
-stop working in late 2027. See the timeline and citations at the top of the
+stop working in September 2027. See the timeline and citations at the top of the
 project README. LTI 1.3 registration is an organisation-level administrator
 workflow, so when Adsum gains 1.3 support an administrator will have to
 register it as an LTI Advantage tool. Adsum does not support 1.3 today, and
 that work is the project's stated next step rather than a shipped feature.
+
+**The full 1.3 registration procedure is in section 9 below**, written so you
+can review the work before approving it. The implementation plan is in
+[LTI-1.3-PLAN.md](LTI-1.3-PLAN.md) and a packet for an institutional security
+and accessibility review is in [IT-REVIEW.md](IT-REVIEW.md).
 
 ## 7. Security summary
 
@@ -138,7 +143,10 @@ that work is the project's stated next step rather than a shipped feature.
   configured consumer secret. A bad signature is rejected.
 - QR check-in tokens are HMAC-SHA256 over the session id and a rotating time
   slot, valid for 20 to 40 seconds, so a forwarded screenshot is stale.
-- Sign-in is throttled: five failures per IP, then a ten-minute lockout.
+- Sign-in is throttled: five failures for one account or twenty-five from one
+  IP address, then a ten-minute lockout. Only failures are counted and a
+  success clears the count, so a mistyped password during class does not lock
+  anyone out.
 - The application refuses to start with a placeholder or short `SECRET_KEY`,
   or an empty administrator password.
 
@@ -165,3 +173,212 @@ supported today.
 
 **Who do we call?** Whoever installed it. The author maintains it in spare
 time, through GitHub issues, with no support contract.
+
+---
+
+## 9. Registering Adsum as an LTI 1.3 Advantage tool
+
+**Read this before approving.** Adsum does not speak LTI 1.3 yet, so this
+section describes the procedure you would follow once it does. It is published
+now so you can review the permissions and the work involved before committing
+to anything.
+
+Sources are D2L's own documentation, with the article number and the date it
+was last updated. Where D2L's pages contradict each other, that is noted rather
+than smoothed over.
+
+### 9.1 Permission you need
+
+**External Learning Tools > Manage LTI Tools, at the organisation level.**
+Required both to register and to deploy (article 23662). On a USG-hosted
+tenant this may sit with USG rather than the campus, which is the first thing
+to establish, because it determines who can approve this at all.
+
+Also relevant: **Grades > Manage Items and Categories** if Adsum will create
+its own gradebook column, and **External Learning Tools > Manage LTI
+Migrations** if you are converting an existing 1.1 link.
+
+### 9.2 Values Adsum gives you
+
+Adsum publishes these at `https://<adsum-host>/lti13/config`, so they can be
+read rather than transcribed.
+
+| Field | Value |
+|---|---|
+| Name | Adsum |
+| Domain | `<adsum-host>` (exact host, no wildcards) |
+| Redirect URL | `https://<adsum-host>/lti13/launch` |
+| OpenID Connect Login URL | `https://<adsum-host>/lti13/login` |
+| Target Link URI | `https://<adsum-host>/lti13/launch` |
+| Keyset URL | `https://<adsum-host>/lti13/jwks` |
+
+Two notes. **Redirect URLs must match exactly**, because Brightspace does not
+support wildcarding (23662), so every hostname the install might answer on
+needs registering. And Brightspace accepts **a keyset URL only**, with no
+option to paste a public key: "Brightspace supports a tool's JWK Key Set only"
+(article 23661, 9 May 2026). RS256, 2048-bit.
+
+### 9.3 Values you give back to Adsum
+
+Brightspace generates these. They go into Adsum's `.env`.
+
+| Brightspace label | What Adsum does with it |
+|---|---|
+| Client Id | Expected `aud` on every launch, and the OAuth client ID |
+| Brightspace Keyset URL | Where Adsum fetches your public keys to verify launch signatures |
+| Brightspace OAuth2 Access Token URL | Where Adsum requests service tokens |
+| Brightspace OAuth 2 Audience | The `aud` in Adsum's token request. **Not** a URL anything is posted to |
+| OpenID Connect Authentication Endpoint | Where Adsum redirects during login |
+| Issuer | Stored verbatim and matched on every launch |
+| Deployment Id | Issued when you create the deployment, not at registration |
+
+**Copy the Issuer and the authentication endpoint from the confirmation screen
+rather than constructing them.** D2L defines the issuer only as "the URL of the
+Brightspace instance" and publishes no rule for deriving it, so Adsum treats it
+as an opaque string.
+
+For reference, your platform keyset is normally at
+`https://<your-brightspace-host>/d2l/.well-known/jwks`. That pattern was
+confirmed against a live USG-hosted tenant on 7 November 2026: it answered
+unauthenticated with RSA signing keys. The token endpoint
+`https://auth.brightspace.com/core/connect/token` and the audience
+`https://api.brightspace.com/auth/token` are published by D2L in article
+23661. They are different values, and confusing them is a common
+implementation error.
+
+### 9.4 Registering, the short way
+
+Brightspace supports **1EdTech Dynamic Registration** (article 23730,
+5 November 2026). You paste one URL and the two systems exchange configuration.
+
+1. **Admin Tools > Manage Extensibility > LTI Advantage > Register Tool**
+2. Choose **Dynamic**, then **Register**
+3. Enter `https://<adsum-host>/lti13/register`
+4. Brightspace opens Adsum in a new tab, deliberately, to avoid cross-site
+   cookie problems. The one-time token expires after one use or one hour.
+5. **Open the new registration, enable it, and save.** Dynamic Registration
+   leaves the registration **disabled by default, per the specification**
+   (23662). This step is skipped often enough to be worth stating twice.
+
+**Configure Deployment** is on by default, so a deployment is usually created
+in the same pass. If deployment creation fails, the registration still counts
+as successful, so check both.
+
+### 9.5 Registering, the manual way
+
+If you would rather see every field:
+
+1. **Admin Tools > Manage Extensibility > LTI Advantage > Register Tool**
+2. Choose **Standard**, then **Register**
+3. Fill in the fields from 9.2
+4. Under **Extensions**, tick only what you are approving. See 9.6.
+5. Under **Roles**, tick **Send Institution Role** only if you want
+   institution-level roles in the launch. Adsum does not need it; context roles
+   are enough.
+6. **Register**, then copy the values in 9.3
+
+D2L recommends registering the tool **disabled**, configuring it fully, then
+enabling (23730).
+
+A note so D2L's own documentation does not confuse you: current D2L articles
+steer administrators towards **Manage Extensibility > Apps**. That is the
+partner catalogue, and a self-hosted MIT-licensed tool is not in it. The
+**LTI Advantage > Register Tool** path above is the right one.
+
+### 9.6 Permissions, and the one that catches everyone
+
+**Extensions must be enabled at BOTH the registration and the deployment.**
+D2L states this for Names and Roles ("Once enabled at the tool registration
+level, you must also enable it at the deployment level", article 23756) and
+again for grades ("enable the Assignment and Grade Services extension for both
+the registration and the deployment", article 5876). Enabling it in one place
+only is the most common cause of a tool that launches fine and then cannot post
+grades.
+
+What Adsum asks for, and what each is for:
+
+| Extension | Needed for | Decline it and... |
+|---|---|---|
+| *(none)* | Launching, and recording attendance | Everything still works. Roster and gradebook stay manual CSV |
+| **Names and Role Provisioning Services** | Reading the class roster | You keep importing a classlist CSV each time the roster changes |
+| **Assignment and Grade Services** | Writing attendance to the gradebook | You keep importing a grades CSV at the end of term |
+
+Adsum requests the read-only roster scope, the score-posting scope, and the
+read-only line item scope. It does **not** request the full `lineitem` scope,
+which would allow it to delete gradebook columns. If Adsum needs to create its
+own column rather than the instructor creating one, that permission becomes
+necessary and should be discussed rather than granted as part of a bundle.
+Full per-scope justification is in [IT-REVIEW.md](IT-REVIEW.md) section 7.
+
+Adsum does not use **Platform Notification Service**, **Asset Processor**,
+**Activity Item Profile** or **Submission Review**. Leave them off.
+
+**Deep Linking**: current D2L documentation says it is enabled by default on
+new registrations (23662, 5 November 2026), while other D2L pages still
+describe a checkbox under Extensions (23755). If your version shows the
+checkbox, tick it.
+
+### 9.7 Creating the deployment, and scoping the pilot
+
+Deployments are on a different screen from registrations.
+
+1. **Admin Tools > External Learning Tools > LTI Advantage > New Deployment**
+2. Select **Adsum** from the Tool dropdown
+3. Name and describe it
+4. Under **Extension**, tick the same extensions you ticked at registration.
+   See 9.6.
+5. Under **Security Settings**, enable **User Information** (Name, Email, User
+   ID, Username, Org Defined Id) and **Org Unit Information**. Without these
+   the launch arrives unidentified and no student can be matched.
+6. **Add Org Units**, and for a pilot select **one course offering**
+7. **Create Deployment**, then copy the Deployment Id
+
+**Org-unit scoping is the pilot control.** Deployments can be shared to
+specific org units or to descendants of a parent (23662), so the pilot's blast
+radius is exactly one course. D2L recommends this approach for testing (5876).
+
+Two settings worth deciding deliberately:
+
+- **Classlist including users not known to this deployment.** With it off, a
+  roster request returns only users who have already launched the tool. With it
+  on, Adsum can request the full classlist (23756). Off is the conservative
+  choice, and Adsum's roster reconciliation is built to refuse an import that
+  would mark most of a class as dropped, so a short roster will not silently
+  wreck anyone's attendance.
+- **Gradeable roles.** AGS scores are only stored for roles with **Can be
+  graded in Grades** enabled. Without it, score posting fails with HTTP 422
+  (article 23752).
+
+Once a deployment exists, **the tool for that deployment cannot be changed**
+(23662).
+
+### 9.8 What the instructor does next
+
+From the deployment page, **View Links > New Link**, or the instructor adds it
+in their own course through **Course Admin > External Learning Tools > LTI
+Advantage**. They launch it once, which creates the course and their instructor
+account in Adsum, and from then on they manage their own settings.
+
+### 9.9 Migrating an existing LTI 1.1 link
+
+Only relevant if a 1.1 pilot is already running mid-semester.
+
+Brightspace can migrate a 1.1 link to 1.3 and sends a migration claim carrying
+the legacy user identity. **Adsum must honour it, or every student in the
+course arrives as a new person and their attendance history detaches from
+them.** Migration is one-way.
+
+D2L confirms a migration claim is sent but does not document its contents, so
+Adsum reads every property the specification defines, tolerates any being
+absent, and falls back to an explicit administrator confirmation rather than
+silently re-binding accounts. Do not migrate a live course without a gradebook
+export taken first.
+
+### 9.10 One thing you might see and wonder about
+
+Brightspace automatically creates an **LTI Advantage Service User** role and
+user to log LTI grade activity (article 23660). It is created at first tool
+registration, shared by all LTI Advantage tools, has no permissions, is
+invisible in classlists, and regenerates if deleted. It is not Adsum's, and
+Adsum does not control it.
+

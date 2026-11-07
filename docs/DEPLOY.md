@@ -239,7 +239,7 @@ there is nothing to look at until that first launch happens.
 
 **LTI 1.1 is being retired by D2L.** New 1.1 integrations cannot be configured
 in Brightspace after the February 2027 release, and 1.1 launches stop working
-in late 2027. The timeline, the sources and what it means for an adopter are
+in September 2027. The timeline, the sources and what it means for an adopter are
 at the top of the [README](../README.md) and in section 6 of
 [INSTALL.md](INSTALL.md). Plan on an organisation-level LTI 1.3 registration,
 which is an administrator task, not an instructor one.

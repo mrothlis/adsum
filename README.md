@@ -31,25 +31,28 @@ in case it is useful elsewhere.
 > |---|---|
 > | Sept 2026 | D2L announced its intent to end support for LTI 1.1. |
 > | Oct 2026 | Formal customer notification. |
-> | **Feb 2027** (release 20.27.2) | Customers can **no longer configure or deploy new LTI 1.1 integrations** through the Brightspace UI, and the Valence API for creating legacy LTI tool providers is removed. |
+> | **Feb 2027** | Customers can **no longer configure or deploy new LTI 1.1 integrations** through the Brightspace UI, and the Valence API for creating legacy LTI tool providers is removed. Links already installed keep working. |
 > | Mar 2027 | Institutions may opt in to disabling LTI 1.1 early. |
-> | **Late 2027** | **LTI 1.1 launches stop working entirely.** |
+> | **Sept 2027** | **LTI 1.1 launches stop working entirely.** |
 >
 > What that means if you are considering Adsum: installing it today works, and
-> a tool link created before the February 2027 release keeps launching until
-> late 2027. After that release you cannot create a *new* LTI 1.1 link in
+> a tool link created before February 2027 keeps launching until
+> September 2027. After that release you cannot create a *new* LTI 1.1 link in
 > Brightspace, so a new course cannot be connected the way this README
 > describes, and your Brightspace administrator may have switched 1.1 off
 > earlier than that.
 >
 > LTI 1.3 support is therefore the project's priority. Being honest about
-> where it stands: nothing in Adsum speaks 1.3 today, there is no dated
-> roadmap, and this is the known next step rather than work in progress. Note
-> also that 1.3 registration in Brightspace is an **organisation-level
-> administrator** workflow, so "no IT ticket required" has a limited life
-> whatever this project does. If you are adopting Adsum now, read
-> [docs/BRIGHTSPACE-ADMIN.md](docs/BRIGHTSPACE-ADMIN.md) and talk to your
-> Brightspace administrator early.
+> where it stands: **nothing in Adsum speaks 1.3 today.** There is a written
+> implementation plan with the protocol work, the scopes and the
+> administrator's install procedure specified
+> ([docs/LTI-1.3-PLAN.md](docs/LTI-1.3-PLAN.md)), and a packet written for an
+> institutional IT review ([docs/IT-REVIEW.md](docs/IT-REVIEW.md)), but no
+> code. Note also that 1.3 registration in Brightspace is an
+> **organisation-level administrator** workflow, so "no IT ticket required"
+> has a limited life whatever this project does. If you are adopting Adsum
+> now, read [docs/BRIGHTSPACE-ADMIN.md](docs/BRIGHTSPACE-ADMIN.md) and talk to
+> your Brightspace administrator early.
 >
 > **What you can rely on regardless:
 > [standalone mode](#running-adsum-without-an-lms-standalone-mode).** A course
@@ -59,10 +62,11 @@ in case it is useful elsewhere.
 > caveat is in that section: identity from an LMS is stronger than identity a
 > student claims for themselves.
 >
-> D2L's own pages disagree about the final cut-off: the KB article says
-> September 2027, the High Impact Changes Timeline says release 20.27.08, and
-> the press release says October 2027. Treat it as "late 2027" and confirm
-> with your administrator.
+> The dates above are from D2L's deprecation plan, last updated 8 Oct 2026.
+> Its own other pages have at times given release numbers rather than dates;
+> where they disagree, the deprecation plan is the article D2L maintains for
+> this purpose. Confirm with your administrator, who may also have chosen to
+> switch 1.1 off earlier.
 >
 > Sources: [LTI 1.1 deprecation plan][d2l-dep1],
 > [D2L press release][d2l-dep2],
@@ -270,7 +274,7 @@ identify themselves by claiming their own name on their own phone, once.
 This is also what keeps the tool usable as D2L retires LTI 1.1. Read the dated
 notice at the top of this file: **no new LTI 1.1 integrations can be created in
 Brightspace after the February 2027 release, and 1.1 launches stop working in
-late 2027.** Standalone mode has no dependency on any of that.
+September 2027.** Standalone mode has no dependency on any of that.
 
 The mode is **per course**, and existing courses keep the D2L path. Running one
 standalone course changes nothing about a colleague's LMS-connected one.
@@ -786,7 +790,7 @@ Worth knowing before you adopt it.
 
 - **LTI 1.1 is being retired by D2L.** New 1.1 links cannot be created in
   Brightspace after the February 2027 release, and 1.1 launches stop working
-  in late 2027. Adsum does not support LTI 1.3 yet. See the notice at the top
+  in September 2027. Adsum does not support LTI 1.3 yet. See the notice at the top
   of this file for the timeline and sources. This is the biggest thing to know
   before adopting it.
 - **Grades move by CSV export and import**, not automatic passback. Both
