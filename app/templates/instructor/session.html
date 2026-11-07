@@ -252,8 +252,9 @@ body.projecting .bigcount-label { font-size: clamp(1rem, 2vw, 2.2rem); }
              a title= tooltip alone is invisible on touch devices. -->
         <p id="unverified-note" class="text-muted" style="font-size:0.85rem;margin:0.75rem 0 0.5rem;
            {% if records | selectattr('student') | rejectattr('student.d2l_verified') | list | length == 0 %}display:none;{% endif %}">
-            ⚠️ Not matched to the D2L roster. Import the class list, or check the
-            student's D2L username, before exporting grades.
+            ⚠️ Not matched to the D2L roster. Either they added the course since your
+            last classlist import, or they should not be in this course. Import the
+            classlist, or check the student's D2L username, before exporting grades.
         </p>
 
         <table class="table" id="attendance-table">

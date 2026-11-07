@@ -31,6 +31,7 @@
                        value="{{ course.course_code or '' }}" placeholder="BUSA2115">
             </div>
         </div>
+        {% if not course.is_standalone %}
         <div class="form-row">
             <div class="form-group">
                 <label for="d2l_org_unit_id">D2L Org Unit ID</label>
@@ -46,6 +47,74 @@
                 <small class="text-muted">Where first-time students are sent to launch from D2L.</small>
             </div>
         </div>
+        {% else %}
+        {# Deliberately not rendered as disabled inputs. A standalone course
+           does not need these at all, and showing them greyed out reads as
+           "something is missing here". They are also not posted, so the
+           stored values survive if the course is switched back. #}
+        <p class="help-text">
+            <span aria-hidden="true">ℹ️</span>
+            The D2L org unit id and check-in link do not apply to a standalone
+            course — nothing here launches from an LMS. Switch the mode below
+            if you connect this course to D2L later.
+        </p>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>How students are identified</h2>
+        <p class="text-muted">
+            This is the one real difference between the two ways of running
+            Adsum. Everything else — the rotating QR code, the typed fallback,
+            the roster import, your attendance policy, the geofence and the
+            exports — works the same either way.
+        </p>
+        <div class="form-group">
+            <label style="display:flex;gap:0.6rem;align-items:flex-start;">
+                <input type="radio" name="mode" value="{{ mode_d2l }}"
+                       style="width:auto;margin-top:0.35rem;"
+                       {% if not course.is_standalone %}checked{% endif %}>
+                <span>
+                    <strong>My LMS tells Adsum who they are (D2L / LTI)</strong><br>
+                    <span class="text-muted">
+                        A student opens Adsum once from inside your D2L course and
+                        Brightspace vouches for them. <strong>Stronger
+                        identity:</strong> to check in as a classmate a student
+                        would have to be signed into D2L as that classmate.
+                        Requires an LTI link in D2L.
+                    </span>
+                </span>
+            </label>
+        </div>
+        <div class="form-group">
+            <label style="display:flex;gap:0.6rem;align-items:flex-start;">
+                <input type="radio" name="mode" value="{{ mode_standalone }}"
+                       style="width:auto;margin-top:0.35rem;"
+                       {% if course.is_standalone %}checked{% endif %}>
+                <span>
+                    <strong>No LMS — students claim their name once (standalone)</strong><br>
+                    <span class="text-muted">
+                        The first time a student scans, they pick their name from
+                        your roster and that phone is theirs for the term. Nothing
+                        to configure and no accounts. <strong>The trade:</strong>
+                        at that first scan a student could pick a classmate's name.
+                        Each name can be claimed on one phone only, so the real
+                        student is then refused and the clash is shown on your
+                        course page while you can still fix it — and you can
+                        release a phone so the right student can claim it. But the
+                        LMS path is stronger, because something outside Adsum has
+                        already proved who the student is.
+                    </span>
+                </span>
+            </label>
+        </div>
+        {% if course.is_standalone %}
+        <p class="help-text">
+            Switching back to the LMS path does not delete the phones that have
+            already claimed a name; it just stops Adsum asking. Switching to
+            standalone does not clear the D2L fields above either.
+        </p>
+        {% endif %}
     </div>
 
     <div class="card">
@@ -142,7 +211,7 @@
         </div>
     </div>
 
-    {% if institution %}
+    {% if institution and not course.is_standalone %}
     <div class="card">
         <h2>Adding the link in your D2L course</h2>
         <p class="text-muted">
@@ -182,6 +251,27 @@
     <form method="post" action="/instructor/course/{{ course.id }}/reset-data"
           onsubmit="return confirm('Delete ALL sessions and attendance for this course? This cannot be undone.');">
         <button type="submit" class="btn btn-danger">Reset Sessions &amp; Attendance</button>
+    </form>
+
+    {# A course can now be created in the UI, so a mistyped one needs a way
+       out. Kept below the reset so the milder action is the one in reach. #}
+    <hr style="margin:1.5rem 0;border:none;border-top:1px solid var(--color-border);">
+    <h2><span aria-hidden="true">🗑️</span> Delete This Course</h2>
+    <p class="text-muted">
+        Removes the course itself along with its roster, sessions and
+        attendance.
+        {% if course.mode == 'standalone' %}
+        This course does not sync to an LMS, so <strong>this is the only copy
+        of its attendance</strong> — download the CSV first if you may need it.
+        {% else %}
+        Attendance already imported into the D2L gradebook stays in D2L; this
+        only removes Adsum's copy.
+        {% endif %}
+    </p>
+    <form method="post" action="/instructor/course/{{ course.id }}/delete"
+          onsubmit="return confirm('Delete the course {{ course.name }} entirely, with its roster, sessions and attendance?\n\nThis cannot be undone.');">
+        <input type="hidden" name="confirm" value="delete">
+        <button type="submit" class="btn btn-outline-danger">Delete Course</button>
     </form>
 </div>
 {% endblock %}

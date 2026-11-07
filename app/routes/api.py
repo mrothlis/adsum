@@ -16,7 +16,7 @@ from app.auth import get_current_user
 from app.authz import owned_session
 from app.config import settings
 from app.database import async_session, get_db
-from app.models import AttendanceRecord, CourseEnrollment, Session
+from app.models import AttendanceRecord, CourseEnrollment, Session, active_roster
 from app.qr import generate_code, generate_qr_base64, generate_token
 
 router = APIRouter(tags=["api"])
@@ -86,10 +86,13 @@ async def attendance_list(request: Request, session_id: int, db: AsyncSession = 
     )
     records = (await db.execute(records_stmt)).scalars().all()
 
+    # The denominator the live page and the projector show. It must exclude
+    # students a classlist import found had dropped, or "32 / 40 checked in"
+    # counts people who left the course weeks ago.
     enrolled_stmt = (
         select(func.count(CourseEnrollment.id))
         .join(Session, Session.course_id == CourseEnrollment.course_id)
-        .where(Session.id == session_id, CourseEnrollment.role == "student")
+        .where(Session.id == session_id, *active_roster())
     )
     enrolled = (await db.execute(enrolled_stmt)).scalar() or 0
 
@@ -153,7 +156,7 @@ async def attendance_stream(request: Request, session_id: int):
                     enrolled_stmt = (
                         select(func.count(CourseEnrollment.id))
                         .join(Session, Session.course_id == CourseEnrollment.course_id)
-                        .where(Session.id == session_id, CourseEnrollment.role == "student")
+                        .where(Session.id == session_id, *active_roster())
                     )
                     enrolled = (await db.execute(enrolled_stmt)).scalar() or 0
 

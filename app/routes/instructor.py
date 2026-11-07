@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import json
 import logging
 import time as _time
 from typing import Optional
@@ -35,13 +36,19 @@ from app.config import settings
 from app.database import get_db
 from app.main import _to_local, templates
 from app.models import (
+    COURSE_MODE_D2L,
+    COURSE_MODE_STANDALONE,
+    COURSE_MODES,
     AttendanceRecord,
+    ClaimConflict,
     Course,
     CourseEnrollment,
+    DeviceBinding,
     Institution,
     Instructor,
     Session,
     Student,
+    active_roster,
 )
 from app.scoring import (
     DEFAULT_ALLOWED_UNEXCUSED,
@@ -60,6 +67,111 @@ router = APIRouter(prefix="/instructor", tags=["instructor"])
 # few tens of kilobytes; anything near this is a mistake (a PowerPoint, a
 # photo) and reading it whole into memory first is the wrong thing to do.
 MAX_ROSTER_UPLOAD_BYTES = 2 * 1024 * 1024
+
+# ─── Roster reconciliation constants ────────────────────────
+#
+# Code constants, never settings. Attendance policy is per course and must
+# never become an install/.env knob; the same reasoning applies here, except
+# more strongly: these are safety limits on a destructive operation, not a
+# pedagogical choice anybody should be able to loosen in a config file.
+
+# Refuse a reconciliation that would drop MORE THAN this share of the
+# currently-active roster, unless the instructor confirms it deliberately.
+#
+# Why a half. The realistic accident is not "everyone dropped", it is
+# uploading a *filtered* D2L export (one section of a cross-listed course, a
+# search result, last term's file, or the grade export instead of the
+# classlist). Those files look valid and parse fine, and quietly marking 38
+# students dropped would remove them from the gradebook export and from every
+# denominator -- a real grade change with no visible cause.
+#
+# Against that, what does a genuine import look like? Adds and drops in a
+# single semester are a handful of students: the university census date
+# removes a few percent, and even a brutal first-week shake-out does not take
+# half a section away between two classlist downloads. So anything above half
+# is far more likely to be the wrong file than the truth, which makes a half
+# the point where "a lot of drops" stops being plausible. It is deliberately
+# generous rather than tight -- a tiny seminar legitimately loses a large
+# fraction, and a guard that cries wolf gets clicked through without reading.
+ROSTER_MAX_DROP_FRACTION = 0.5
+
+# How long a roster may go un-imported before the course page and the
+# dashboard start saying so. A week is one teaching cycle: long enough that a
+# normal instructor is not nagged between two consecutive classes, short
+# enough that an add or a drop is caught in the week it happened rather than
+# at the end of term when the grade is already wrong.
+ROSTER_STALE_AFTER_DAYS = 7
+
+# How many names a summary lists in full before it switches to "and N more".
+# The point of the summary is that it is readable; forty names in an alert is
+# not read, it is scrolled past.
+ROSTER_SUMMARY_NAMES_SHOWN = 8
+
+# The confirmation value the guard requires, following the delete-session
+# pattern: enforced server-side, where a mis-sent request cannot slip past a
+# JS dialog.
+ROSTER_DROP_CONFIRM = "drop"
+
+
+def _roster_freshness(course: Course) -> dict:
+    """Plain-language state of this course's last classlist import.
+
+    Worded for a professor, and honest about what the app knows: Adsum cannot
+    poll D2L (an LTI 1.1 launch carries no roster, and the Valence
+    enrollments API needs an administrator-registered OAuth application), so
+    this says when THEY last imported a classlist -- never that D2L was
+    checked.
+
+    A standalone course has no D2L to name, so the same sentences talk about
+    "a class roster". Saying "D2L classlist" to an instructor who has no LMS
+    would be the documentation lying about the product.
+    """
+    what = "class roster" if course.is_standalone else "D2L classlist"
+    last = course.roster_last_imported_at
+    if last is None:
+        # Wording preserved exactly for the D2L case: this sentence is
+        # asserted by scripts/test_roster_sync.py, and a rename that changes
+        # nothing about behaviour should not break a test.
+        return {
+            "never": True, "stale": True, "last": None, "days": None,
+            "phrase": ("No class roster has been imported into Adsum for this "
+                       "course yet." if course.is_standalone else
+                       "No classlist has been imported into Adsum for this "
+                       "course yet."),
+        }
+    now = dt.datetime.utcnow()
+    days = max(0, (now - last).days)
+    if days == 0:
+        phrase = f"You imported a {what} today."
+    elif days == 1:
+        phrase = f"You imported a {what} yesterday."
+    elif days < 14:
+        phrase = f"You imported a {what} {days} days ago."
+    else:
+        weeks = days // 7
+        phrase = (f"You imported a {what} about {weeks} weeks ago "
+                  f"({_to_local(last).strftime('%b %d')}).")
+    return {"never": False, "stale": days >= ROSTER_STALE_AFTER_DAYS,
+            "last": last, "days": days, "phrase": phrase}
+
+
+def _last_import_summary(course: Course) -> Optional[dict]:
+    """The stored record of the last classlist import, or None.
+
+    Read back from the course row rather than from the redirect's query
+    string, because a query string cannot carry a list of student names and
+    the names are the entire point of the alert. A row written by a newer
+    version, or corrupted, must not take the course page down.
+    """
+    raw = course.roster_last_import_summary
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        log.warning("course %s has an unreadable import summary", course.id)
+        return None
+    return data if isinstance(data, dict) else None
 
 
 async def _open_session(db: AsyncSession, course_id: int):
@@ -272,7 +384,99 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         "courses": courses,
         "active_sessions": active_sessions,
         "alerts": alerts,
+        # Per-course "when did you last import a classlist", so the card can
+        # nag about a stale roster. Adsum cannot ask D2L, so the only thing
+        # that reconciles adds and drops is the instructor importing one.
+        "roster_status": {c.id: _roster_freshness(c) for c in courses},
     })
+
+
+# ─── Creating a course ──────────────────────────────────────
+#
+# Until now a Course could only come into existence in two places --
+# app/routes/lti.py and app/seed.py -- so a fresh install's dashboard was
+# permanently empty unless somebody launched the tool from D2L. That made
+# Adsum unusable for an instructor with no LMS, and it is also what makes the
+# app survive D2L retiring LTI 1.1.
+
+
+@router.get("/courses/new", response_class=HTMLResponse)
+async def new_course_form(request: Request, db: AsyncSession = Depends(get_db)):
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    if not await active_instructor(db, user):
+        resp = RedirectResponse("/", status_code=302)
+        clear_session_cookie(resp)
+        return resp
+    return templates.TemplateResponse(request, "instructor/new_course.html", {
+        "user": user,
+        "error": request.query_params.get("error", ""),
+        "mode_d2l": COURSE_MODE_D2L,
+        "mode_standalone": COURSE_MODE_STANDALONE,
+    })
+
+
+@router.post("/courses/new")
+async def create_course(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    name: Optional[str] = Form(None),
+    course_code: Optional[str] = Form(None),
+    mode: Optional[str] = Form(None),
+):
+    """Create a course owned by the instructor who created it.
+
+    The mode is chosen here and only here as a default; it is editable
+    afterwards in course settings. An unrecognised or missing value falls
+    back to the D2L path, which is the safe direction: the standalone path
+    has weaker identity, so it is never arrived at by accident.
+    """
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    instructor = await active_instructor(db, user)
+    if not instructor:
+        resp = RedirectResponse("/", status_code=302)
+        clear_session_cookie(resp)
+        return resp
+
+    clean_name = (name or "").strip()
+    if not clean_name:
+        return RedirectResponse(
+            "/instructor/courses/new?error="
+            + quote_plus("Give the course a name."), status_code=302)
+
+    chosen = (mode or "").strip().lower()
+    if chosen not in COURSE_MODES:
+        chosen = COURSE_MODE_D2L
+
+    # One institution row per install (created by the bootstrap), and it
+    # carries the shared D2L host and LTI credentials. Attaching the course
+    # to it keeps the launch instructions working for a course that is later
+    # switched to the D2L path.
+    institution_id = (await db.execute(
+        select(Institution.id).order_by(Institution.id).limit(1))).scalar()
+
+    course = Course(
+        institution_id=institution_id,
+        name=clean_name,
+        course_code=(course_code or "").strip() or None,
+        mode=chosen,
+        geofence_lat=settings.DEFAULT_GEOFENCE_LAT,
+        geofence_lon=settings.DEFAULT_GEOFENCE_LON,
+        geofence_radius_m=settings.DEFAULT_GEOFENCE_RADIUS_M,
+    )
+    db.add(course)
+    await db.flush()
+    # The creator owns it. owned_course() answers on exactly this row, so
+    # without it the instructor would create a course they cannot open.
+    db.add(CourseEnrollment(course_id=course.id,
+                            instructor_id=instructor.id, role="instructor"))
+    await db.commit()
+    log.info("course %s (%r, mode=%s) created by instructor %s",
+             course.id, clean_name, chosen, instructor.id)
+    return RedirectResponse(f"/instructor/course/{course.id}", status_code=302)
 
 
 async def _compute_alerts(db: AsyncSession, course: Course) -> list:
@@ -285,11 +489,13 @@ async def _compute_alerts(db: AsyncSession, course: Course) -> list:
     if total_sessions == 0:
         return alerts
 
-    # Enrolled students
+    # Enrolled students. Dropped students are excluded: an early alert about
+    # somebody who left the course is noise, and their frozen attendance
+    # would show as a permanent at-risk warning forever.
     enr_stmt = (
         select(Student)
         .join(CourseEnrollment)
-        .where(CourseEnrollment.course_id == course.id, CourseEnrollment.role == "student")
+        .where(CourseEnrollment.course_id == course.id, *active_roster())
     )
     students = (await db.execute(enr_stmt)).scalars().all()
 
@@ -337,40 +543,16 @@ async def _compute_alerts(db: AsyncSession, course: Course) -> list:
 
 # ─── Course detail ──────────────────────────────────────────
 
-@router.get("/course/{course_id}", response_class=HTMLResponse)
-async def course_detail(
-    request: Request,
-    course_id: int,
-    db: AsyncSession = Depends(get_db),
-    import_new: Optional[int] = None,
-    import_updated: Optional[int] = None,
-    import_enrolled: Optional[int] = None,
-):
-    user = require_instructor(request)
-    if not user:
-        return RedirectResponse("/", status_code=302)
+async def _student_stats(db: AsyncSession, students, sessions, _policy) -> list:
+    """Per-student attendance figures for a roster table.
 
-    course = await owned_course(db, user, course_id)
-    if not course:
-        return HTMLResponse("Course not found", status_code=404)
-    _policy = policy_for(course)
-
-    # Sessions
-    sess_stmt = select(Session).where(Session.course_id == course_id).order_by(Session.started_at.desc())
-    sessions = (await db.execute(sess_stmt)).scalars().all()
-
-    # Enrolled students with attendance stats
-    enr_stmt = (
-        select(Student)
-        .join(CourseEnrollment)
-        .where(CourseEnrollment.course_id == course_id, CourseEnrollment.role == "student")
-        .order_by(Student.name)
-    )
-    students = (await db.execute(enr_stmt)).scalars().all()
+    Shared by the active roster and the "Dropped from D2L classlist" section,
+    so a dropped student's accumulated attendance is shown with exactly the
+    same arithmetic -- that record is what settles a dispute weeks later.
+    """
     total_sessions = len(sessions)
-
-    student_stats = []
     session_ids = [s.id for s in sessions]
+    out = []
     for s in students:
         if session_ids:
             att_stmt = select(func.count(AttendanceRecord.id)).where(
@@ -404,32 +586,188 @@ async def course_detail(
         # counted a late arrival as a full class.
         _raw = score(total_sessions, _present, _late, _exc, 0,
                      _policy.late_credit_percent)
-        student_stats.append({"student": s, "attended": attended, "total": total_sessions,
-                              "late": _late,
-                              "pct": _sc.pct, "raw_pct": _raw.pct,
-                              "has_sessions": total_sessions > 0,
-                              "excused": _sc.excused,
-                              "unexcused": _sc.unexcused, "forgiven": _sc.forgiven,
-                              "over_limit": _sc.unexcused_over_limit})
+        out.append({"student": s, "attended": attended, "total": total_sessions,
+                    "late": _late,
+                    "pct": _sc.pct, "raw_pct": _raw.pct,
+                    "has_sessions": total_sessions > 0,
+                    "excused": _sc.excused,
+                    "unexcused": _sc.unexcused, "forgiven": _sc.forgiven,
+                    "over_limit": _sc.unexcused_over_limit})
+    return out
 
-    # Build import result from query params (set after redirect from import)
-    import_result = None
-    if import_new is not None:
-        import_result = {
-            "new": import_new,
-            "updated": import_updated or 0,
-            "enrolled": import_enrolled or 0,
-        }
+
+@router.get("/course/{course_id}", response_class=HTMLResponse)
+async def course_detail(
+    request: Request,
+    course_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+
+    course = await owned_course(db, user, course_id)
+    if not course:
+        return HTMLResponse("Course not found", status_code=404)
+    _policy = policy_for(course)
+
+    # Sessions
+    sess_stmt = select(Session).where(Session.course_id == course_id).order_by(Session.started_at.desc())
+    sessions = (await db.execute(sess_stmt)).scalars().all()
+
+    # The active roster: students still on the D2L classlist as far as the
+    # last import could tell.
+    enr_stmt = (
+        select(Student)
+        .join(CourseEnrollment)
+        .where(CourseEnrollment.course_id == course_id, *active_roster())
+        .order_by(Student.name)
+    )
+    students = (await db.execute(enr_stmt)).scalars().all()
+    student_stats = await _student_stats(db, students, sessions, _policy)
+
+    # Students a classlist import found missing. Kept, never deleted, and
+    # shown separately with the date they were detected as gone and the
+    # attendance they had accumulated, so a dispute can still be settled.
+    dropped_rows = (await db.execute(
+        select(Student, CourseEnrollment.dropped_at)
+        .join(CourseEnrollment, CourseEnrollment.student_id == Student.id)
+        .where(CourseEnrollment.course_id == course_id,
+               CourseEnrollment.role == "student",
+               CourseEnrollment.dropped_at.is_not(None))
+        .order_by(Student.name)
+    )).all()
+    dropped_stats = await _student_stats(
+        db, [row[0] for row in dropped_rows], sessions, _policy)
+    for stat, row in zip(dropped_stats, dropped_rows, strict=True):
+        stat["dropped_at"] = row[1]
 
     return templates.TemplateResponse(request, "instructor/course_detail.html", {
         "user": user,
         "course": course,
         "sessions": sessions,
         "student_stats": student_stats,
-        "import_result": import_result,
+        "dropped_stats": dropped_stats,
+        # The standing record of the last import, read from the course row.
+        # It is not a flash: before this it was a transient banner saying
+        # "32 new, 4 updated" and the only evidence an import had ever
+        # happened.
+        "import_result": _last_import_summary(course),
+        "roster_status": _roster_freshness(course),
+        "stale_after_days": ROSTER_STALE_AFTER_DAYS,
+        "summary_names_shown": ROSTER_SUMMARY_NAMES_SHOWN,
         "allowed_absences": _policy.allowed_unexcused,
         "policy": _policy,
+        # Standalone identity. Empty on a D2L course, where identity comes
+        # from the LMS and there is nothing to manage here.
+        "bindings": await _active_bindings(db, course),
+        "claim_conflicts": await _unreviewed_conflicts(db, course),
     })
+
+
+async def _active_bindings(db: AsyncSession, course: Course) -> list:
+    """Which phone is which student, for a standalone course."""
+    if not course.is_standalone:
+        return []
+    return list((await db.execute(
+        select(DeviceBinding)
+        .options(selectinload(DeviceBinding.student))
+        .where(DeviceBinding.course_id == course.id,
+               DeviceBinding.released_at.is_(None))
+        .order_by(DeviceBinding.claimed_at.desc())
+    )).scalars().all())
+
+
+async def _unreviewed_conflicts(db: AsyncSession, course: Course) -> list:
+    """Refused claims the instructor has not acknowledged yet.
+
+    Shown prominently rather than filed away: a wrong binding is only
+    fixable while the class is still in the room, and this is the only
+    signal that one happened. A student seeing "that name is already in
+    use" tells nobody.
+    """
+    if not course.is_standalone:
+        return []
+    return list((await db.execute(
+        select(ClaimConflict)
+        .options(selectinload(ClaimConflict.student))
+        .where(ClaimConflict.course_id == course.id,
+               ClaimConflict.reviewed_at.is_(None))
+        .order_by(ClaimConflict.attempted_at.desc())
+    )).scalars().all())
+
+
+@router.post("/course/{course_id}/binding/{binding_id}/release")
+async def release_binding(request: Request, course_id: int, binding_id: int,
+                          db: AsyncSession = Depends(get_db)):
+    """Free a student's name so it can be claimed on a different phone.
+
+    The fix for a new phone, a lost phone, and a student who tapped the
+    wrong name. It is deliberately NOT a delete: the row is marked released
+    so the history of who held the name survives, and -- the part that
+    matters -- NO ATTENDANCE IS TOUCHED. Attendance belongs to the student,
+    not to the device, and a release that quietly removed a class the
+    student really did attend would be worse than the wrong binding.
+
+    Releasing also invalidates the cookie on that phone immediately, because
+    the student path re-reads the binding row on every scan rather than
+    trusting the signature alone.
+    """
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    course = await owned_course(db, user, course_id)
+    if not course:
+        return HTMLResponse("Not found", status_code=404)
+
+    binding = await db.get(DeviceBinding, binding_id)
+    # Scoped to this course, so an id from another professor's course cannot
+    # be released by changing the number in the URL.
+    if not binding or binding.course_id != course_id:
+        log.warning("release refused: binding %s is not on course %s",
+                    binding_id, course_id)
+        return HTMLResponse("That device binding is not on this course.",
+                            status_code=404)
+
+    if binding.released_at is None:
+        binding.released_at = dt.datetime.utcnow()
+        binding.released_by_instructor_id = user.get("instructor_id")
+        await db.commit()
+        log.warning("RELEASE: binding %s (student %s, course %s) released by "
+                    "instructor %s; attendance untouched",
+                    binding.id, binding.student_id, course_id,
+                    user.get("instructor_id"))
+    notice = ("Device released. That student can check in again on any phone "
+              "the next time they scan. Their attendance is unchanged.")
+    return RedirectResponse(
+        f"/instructor/course/{course_id}?notice={quote_plus(notice)}",
+        status_code=302)
+
+
+@router.post("/course/{course_id}/claim-conflicts/review")
+async def review_claim_conflicts(request: Request, course_id: int,
+                                 db: AsyncSession = Depends(get_db)):
+    """Acknowledge the refused claims shown on the course page.
+
+    Marked reviewed rather than deleted, so "this happened and I looked at
+    it" stays answerable weeks later when a student disputes a grade.
+    """
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    course = await owned_course(db, user, course_id)
+    if not course:
+        return HTMLResponse("Not found", status_code=404)
+    rows = (await db.execute(select(ClaimConflict).where(
+        ClaimConflict.course_id == course_id,
+        ClaimConflict.reviewed_at.is_(None)))).scalars().all()
+    now = dt.datetime.utcnow()
+    for row in rows:
+        row.reviewed_at = now
+    await db.commit()
+    log.info("%s refused claim(s) on course %s marked reviewed by instructor %s",
+             len(rows), course_id, user.get("instructor_id"))
+    return RedirectResponse(f"/instructor/course/{course_id}", status_code=302)
 
 
 # ─── Start / Stop session ──────────────────────────────────
@@ -489,6 +827,83 @@ async def stop_session(request: Request, session_id: int, db: AsyncSession = Dep
         session.ended_at = dt.datetime.utcnow()
         await db.commit()
     return RedirectResponse(f"/instructor/course/{session.course_id}", status_code=302)
+
+
+@router.post("/course/{course_id}/delete")
+async def delete_course(request: Request, course_id: int,
+                        db: AsyncSession = Depends(get_db),
+                        confirm: str = Form("")):
+    """Remove a course and everything belonging to it.
+
+    Needed because a course can now be created in the UI. Before that, every
+    course arrived from a D2L launch and a mistyped one was at least rare;
+    now a typo in the "New course" form is a dead row an instructor has no
+    way to clear, and the only neighbouring tool was reset_course_data, which
+    empties a course's attendance but leaves the course itself.
+
+    Deliberately irreversible and deliberately awkward. The confirmation is
+    checked server-side, like delete-session, because a dialog is not
+    enforcement -- and for a standalone course this is the ONLY copy of the
+    attendance, so there is no D2L gradebook to restore it from.
+    """
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    course = await owned_course(db, user, course_id)
+    if not course:
+        return HTMLResponse("Not found", status_code=404)
+
+    if confirm.strip().lower() != "delete":
+        log.warning("delete-course refused on course %s: no confirmation",
+                    course_id)
+        return HTMLResponse(
+            "Deleting a course must be confirmed. Nothing was deleted.",
+            status_code=400)
+
+    # Count first, for the log and the notice: "deleted a course" is not a
+    # useful audit line, "deleted a course with 11 sessions and 240 records"
+    # is.
+    # Order matters, and foreign keys are enforced (app/database.py sets the
+    # PRAGMA), so the child-most rows have to go first. Deleting sessions
+    # before claim_conflicts failed with "FOREIGN KEY constraint failed",
+    # because a refused-claim row points at the session it was refused on.
+    session_ids = list((await db.execute(
+        select(Session.id).where(Session.course_id == course_id)
+    )).scalars().all())
+    record_count = 0
+    if session_ids:
+        record_count = (await db.execute(
+            select(func.count(AttendanceRecord.id)).where(
+                AttendanceRecord.session_id.in_(session_ids))
+        )).scalar() or 0
+    await db.execute(delete(ClaimConflict).where(
+        ClaimConflict.course_id == course_id))
+    await db.execute(delete(DeviceBinding).where(
+        DeviceBinding.course_id == course_id))
+    if session_ids:
+        await db.execute(delete(AttendanceRecord).where(
+            AttendanceRecord.session_id.in_(session_ids)))
+    await db.execute(delete(Session).where(Session.course_id == course_id))
+    await db.execute(delete(CourseEnrollment).where(
+        CourseEnrollment.course_id == course_id))
+    # Snapshot what the log and notice need BEFORE the delete: after the
+    # commit the ORM object is expired, and touching an attribute then
+    # triggers a lazy reload of a row that no longer exists.
+    name = course.name
+    mode = course.mode
+    await db.delete(course)
+    await db.commit()
+
+    log.warning("course %s (%r, mode %s) deleted by instructor %s; "
+                "%s session(s) and %s attendance record(s) removed",
+                course_id, name, mode, user.get("instructor_id"),
+                len(session_ids), record_count)
+    notice = (f"Deleted {name}, with {len(session_ids)} "
+              f"session{'' if len(session_ids) == 1 else 's'} and "
+              f"{record_count} attendance "
+              f"record{'' if record_count == 1 else 's'}.")
+    return RedirectResponse(f"/instructor/dashboard?notice={quote_plus(notice)}",
+                            status_code=302)
 
 
 @router.post("/session/{session_id}/delete")
@@ -701,20 +1116,24 @@ async def session_view(request: Request, session_id: int, db: AsyncSession = Dep
     )
     records = (await db.execute(att_stmt)).scalars().all()
 
-    # Total enrolled
+    # Total enrolled. Dropped students are out of the denominator: a
+    # "32 / 40 checked in" where 2 of the 40 left the course weeks ago is a
+    # wrong number on a projected screen.
     enr_count = (await db.execute(
         select(func.count(CourseEnrollment.id)).where(
             CourseEnrollment.course_id == course.id,
-            CourseEnrollment.role == "student",
+            *active_roster(),
         )
     )).scalar() or 0
 
-    # Students not yet checked in (for manual mark-present)
+    # Students not yet checked in (for manual mark-present). A dropped
+    # student must not be offered here -- marking them present would put
+    # attendance on somebody who is no longer in the class.
     checked_ids = {r.student_id for r in records}
     enrolled_students = (await db.execute(
         select(Student).join(CourseEnrollment).where(
             CourseEnrollment.course_id == course.id,
-            CourseEnrollment.role == "student",
+            *active_roster(),
         ).order_by(Student.name)
     )).scalars().all()
     missing_students = [s for s in enrolled_students if s.id not in checked_ids]
@@ -761,11 +1180,12 @@ async def analytics(request: Request, course_id: int, db: AsyncSession = Depends
         session_labels.append(label)
         session_counts.append(ct)
 
-    # Enrolled count
+    # Enrolled count — the active roster only, so the "expected" line on the
+    # chart is not inflated by students who dropped.
     enr_count = (await db.execute(
         select(func.count(CourseEnrollment.id)).where(
             CourseEnrollment.course_id == course_id,
-            CourseEnrollment.role == "student",
+            *active_roster(),
         )
     )).scalar() or 0
 
@@ -795,10 +1215,13 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
         select(Session).where(Session.course_id == course_id).order_by(Session.started_at)
     )).scalars().all()
 
+    # The active roster only. A dropped student's history stays in the app
+    # (course page, "Dropped from D2L classlist"), but this spreadsheet is a
+    # grade-facing document and they are not in the class any more.
     students = (await db.execute(
         select(Student).join(CourseEnrollment).where(
             CourseEnrollment.course_id == course_id,
-            CourseEnrollment.role == "student",
+            *active_roster(),
         ).order_by(Student.name)
     )).scalars().all()
 
@@ -878,6 +1301,8 @@ async def course_settings(request: Request, course_id: int, db: AsyncSession = D
         "default_allowed_absences": DEFAULT_ALLOWED_UNEXCUSED,
         "default_late_threshold": DEFAULT_LATE_THRESHOLD_MINUTES,
         "default_late_credit": DEFAULT_LATE_CREDIT_PERCENT,
+        "mode_d2l": COURSE_MODE_D2L,
+        "mode_standalone": COURSE_MODE_STANDALONE,
     })
 
 
@@ -892,6 +1317,7 @@ async def save_course_settings(
     # -- which is how the D2L deep link was wiped by an unrelated test.
     name: Optional[str] = Form(None),
     course_code: Optional[str] = Form(None),
+    mode: Optional[str] = Form(None),
     d2l_org_unit_id: Optional[str] = Form(None),
     d2l_attendance_checkin_url: Optional[str] = Form(None),
     geofence_lat: Optional[float] = Form(None),
@@ -922,6 +1348,18 @@ async def save_course_settings(
         course.name = name.strip()
     if course_code is not None:
         course.course_code = course_code.strip() or None
+    # The mode changes how students are identified, so an unrecognised value
+    # is ignored rather than guessed at, and a field that was not submitted
+    # leaves the course alone. Switching to standalone does NOT clear the D2L
+    # columns: the instructor may be trying it for one term, and silently
+    # destroying the org unit id and deep link would be the Form("") mistake
+    # in a new place.
+    if mode is not None and mode.strip().lower() in COURSE_MODES:
+        new_mode = mode.strip().lower()
+        if new_mode != course.mode:
+            log.info("course %s mode changed from %s to %s by instructor %s",
+                     course_id, course.mode, new_mode, user.get("instructor_id"))
+        course.mode = new_mode
     if d2l_org_unit_id is not None:
         course.d2l_org_unit_id = d2l_org_unit_id.strip() or None
     if d2l_attendance_checkin_url is not None:
@@ -1113,6 +1551,11 @@ async def restore_from_d2l(request: Request, course_id: int,
         if s.started_at:
             by_date[_to_local(s.started_at).date()] = s
 
+    # Deliberately NOT filtered to the active roster: a dropped student's
+    # ledger in the D2L export is real history, and this is the path that
+    # rebuilds it after a data loss. Restoring it changes no grade -- the
+    # exports exclude them -- but throwing it away would make the app unable
+    # to answer a dispute.
     students = (await db.execute(
         select(Student).join(CourseEnrollment).where(
             CourseEnrollment.course_id == course_id,
@@ -1223,8 +1666,25 @@ async def import_d2l_roster(
     course_id: int,
     db: AsyncSession = Depends(get_db),
     roster_file: UploadFile = File(...),
+    # Optional[...] = Form(None), never Form(""): absent means "the
+    # instructor has not confirmed anything", which is the safe reading.
+    confirm_drops: Optional[str] = Form(None),
 ):
-    """Import a D2L Classlist CSV to sync the course roster."""
+    """Reconcile the course roster against a D2L Classlist CSV.
+
+    This used to be additive only: it counted new, updated and newly enrolled
+    students and never noticed anybody who had disappeared from the
+    classlist, so a student who dropped stayed enrolled forever, kept
+    accruing absences, and kept appearing in the gradebook export. Now the
+    import is a reconciliation -- adds, re-adds, identity changes and drops --
+    and it says who, by name.
+
+    Adsum cannot do this on a timer. An LTI 1.1 launch carries no roster, and
+    the Valence enrollments API needs an OAuth application registered by a
+    Brightspace administrator. So this upload is the only moment the app can
+    learn that somebody left, which is why the result is a standing record
+    and why a course whose roster has not been imported lately says so.
+    """
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
@@ -1244,8 +1704,13 @@ async def import_d2l_roster(
         _p = policy_for(course)
         return templates.TemplateResponse(request, "instructor/course_detail.html", {
             "user": user, "course": course, "sessions": [], "student_stats": [],
+            "dropped_stats": [],
             "import_result": {"error": message},
+            "roster_status": _roster_freshness(course),
+            "stale_after_days": ROSTER_STALE_AFTER_DAYS,
+            "summary_names_shown": ROSTER_SUMMARY_NAMES_SHOWN,
             "allowed_absences": _p.allowed_unexcused, "policy": _p,
+            "bindings": [], "claim_conflicts": [],
         })
 
     # Cap the upload. Reading one byte past the limit is enough to detect it
@@ -1290,10 +1755,13 @@ async def import_d2l_roster(
     if col_first is None and col_last is None:
         return bad("Could not find First Name / Last Name columns in the CSV.")
 
-    new_count = 0
-    updated_count = 0
-    enrolled_count = 0
-
+    # ── Phase 1: parse the whole file before touching anything ──
+    #
+    # The old loop created students, enrolled them and committed as it went.
+    # Reconciliation cannot work that way: whether the file is safe to act on
+    # at all is only knowable once every row has been read, and the guard
+    # below has to be able to change NOTHING.
+    parsed: list[dict] = []
     for row in rows:
         if not row or all(cell.strip() == "" for cell in row):
             continue
@@ -1315,62 +1783,180 @@ async def import_d2l_roster(
         if not org_id and not email:
             continue  # can't identify student without at least one identifier
 
-        # Find existing student by OrgDefinedId or email
-        student = None
-        if org_id:
-            stmt = select(Student).where(Student.student_id_number == org_id)
-            student = (await db.execute(stmt)).scalar_one_or_none()
-        if not student and email:
-            stmt = select(Student).where(Student.email == email)
-            student = (await db.execute(stmt)).scalar_one_or_none()
+        parsed.append({"name": full_name, "org_id": org_id,
+                       "username": username, "email": email})
 
+    if not parsed:
+        return bad("No student rows were found in that file. Export the "
+                   "Classlist from D2L (Classlist \u2192 Export) and upload "
+                   "that file. Nothing was changed.")
+
+    # ── Phase 2: work out what the file would do ──
+    enrolled_rows = (await db.execute(
+        select(CourseEnrollment, Student)
+        .join(Student, Student.id == CourseEnrollment.student_id)
+        .where(CourseEnrollment.course_id == course_id,
+               CourseEnrollment.role == "student")
+    )).all()
+    by_student_id = {s.id: (e, s) for e, s in enrolled_rows}
+    active_ids = {s.id for e, s in enrolled_rows if e.dropped_at is None}
+
+    named_ids: set[int] = set()
+    for rec in parsed:
+        student = None
+        if rec["org_id"]:
+            student = (await db.execute(select(Student).where(
+                Student.student_id_number == rec["org_id"]))).scalar_one_or_none()
+        if not student and rec["email"]:
+            student = (await db.execute(select(Student).where(
+                Student.email == rec["email"]))).scalar_one_or_none()
+        rec["student"] = student
+        if student is not None and student.id in by_student_id:
+            named_ids.add(student.id)
+
+    would_drop_ids = active_ids - named_ids
+    overlap = len(active_ids & named_ids)
+    confirmed = (confirm_drops or "").strip().lower() == ROSTER_DROP_CONFIRM
+
+    # ── Phase 3: the wrong-file guard ──
+    #
+    # Importing a filtered export, another section's classlist, or simply the
+    # wrong file is the realistic accident, and it must fail loudly rather
+    # than quietly mark the whole class dropped. Adds are never blocked by
+    # this -- but a refusal applies to the WHOLE import, because an unsafe
+    # file is not a file whose adds can be trusted either.
+    refusal = None
+    if would_drop_ids and not confirmed:
+        if active_ids and overlap == 0:
+            refusal = "no_overlap"
+        elif len(would_drop_ids) > ROSTER_MAX_DROP_FRACTION * len(active_ids):
+            refusal = "too_many"
+
+    if refusal:
+        # Snapshot everything the page needs as plain Python BEFORE the
+        # rollback: rolling back expires every ORM object, and touching one
+        # afterwards triggers a lazy reload outside the async greenlet, which
+        # is a 500 rather than a refusal page.
+        names = sorted(by_student_id[sid][1].name for sid in would_drop_ids)
+        course_name = course.name
+        course_code = course.course_code
+        # Nothing above this point has modified a row, and the rollback makes
+        # that a guarantee rather than a reading of the code.
+        await db.rollback()
+        log.warning("roster import on course %s REFUSED (%s): %s of %s active "
+                    "students would be dropped", course_id, refusal,
+                    len(would_drop_ids), len(active_ids))
+        return templates.TemplateResponse(request, "instructor/import_guard.html", {
+            "user": user,
+            "course_id": course_id,
+            "course_name": course_name,
+            "course_code": course_code,
+            "reason": refusal,
+            "would_drop_names": names,
+            "would_drop_count": len(would_drop_ids),
+            "active_count": len(active_ids),
+            "in_file_count": len(parsed),
+            "matched_count": overlap,
+            "threshold_percent": int(ROSTER_MAX_DROP_FRACTION * 100),
+            "confirm_value": ROSTER_DROP_CONFIRM,
+            "summary_names_shown": ROSTER_SUMMARY_NAMES_SHOWN,
+        }, status_code=409)
+
+    # ── Phase 4: apply the reconciliation ──
+    now = dt.datetime.utcnow()
+    # The change log goes on screen, so it must not name D2L to an instructor
+    # who has no D2L. The columns are still called d2l_* in the schema (they
+    # are the same identity fields either way); only the wording changes.
+    username_label = "username" if course.is_standalone else "D2L username"
+    id_label = "student ID" if course.is_standalone else "D2L ID"
+    added: list[str] = []
+    re_added: list[str] = []
+    dropped: list[str] = []
+    changed: list[dict] = []
+    unchanged = 0
+
+    for rec in parsed:
+        student = rec["student"]
         if student:
-            # Update existing student
-            if full_name and student.name != full_name:
-                student.name = full_name
-            if email and student.email != email:
-                student.email = email
-            if org_id:
-                student.d2l_user_id = org_id
-            if username:
-                student.d2l_username = username
+            # Identity drift matters: the gradebook export matches on the D2L
+            # username, so a changed one silently stops a grade landing. Say
+            # what changed, not just that something did.
+            changes = []
+            if rec["name"] and student.name != rec["name"]:
+                changes.append(f"name: {student.name} \u2192 {rec['name']}")
+                student.name = rec["name"]
+            if rec["email"] and student.email != rec["email"]:
+                changes.append(f"email: {student.email or 'none'} \u2192 {rec['email']}")
+                student.email = rec["email"]
+            if rec["username"] and student.d2l_username != rec["username"]:
+                changes.append(f"{username_label}: "
+                               f"{student.d2l_username or 'none'} \u2192 {rec['username']}")
+                student.d2l_username = rec["username"]
+            if rec["org_id"] and student.d2l_user_id != rec["org_id"]:
+                changes.append(f"{id_label}: "
+                               f"{student.d2l_user_id or 'none'} \u2192 {rec['org_id']}")
+                student.d2l_user_id = rec["org_id"]
             student.d2l_verified = True
-            updated_count += 1
+            if changes:
+                changed.append({"name": student.name, "changes": changes})
+            else:
+                unchanged += 1
         else:
-            # Create new student
             student = Student(
-                name=full_name or username or org_id,
-                email=email or None,
-                student_id_number=org_id or username or email.split("@")[0],
-                d2l_user_id=org_id or None,
-                d2l_username=username or None,
+                name=rec["name"] or rec["username"] or rec["org_id"],
+                email=rec["email"] or None,
+                student_id_number=(rec["org_id"] or rec["username"]
+                                   or rec["email"].split("@")[0]),
+                d2l_user_id=rec["org_id"] or None,
+                d2l_username=rec["username"] or None,
                 d2l_verified=True,
             )
             db.add(student)
             await db.flush()  # get student.id
-            new_count += 1
 
-        # Ensure enrollment exists
-        enr_stmt = select(CourseEnrollment).where(
-            CourseEnrollment.course_id == course_id,
-            CourseEnrollment.student_id == student.id,
-        )
-        existing_enr = (await db.execute(enr_stmt)).scalar_one_or_none()
-        if not existing_enr:
+        existing = by_student_id.get(student.id)
+        if existing is None:
             db.add(CourseEnrollment(
                 course_id=course_id,
                 student_id=student.id,
                 role="student",
             ))
-            enrolled_count += 1
+            added.append(student.name)
+        elif existing[0].dropped_at is not None:
+            # Back on the classlist. Un-drop rather than create a second
+            # enrollment -- uq_course_student would refuse that anyway, and
+            # their old attendance is theirs.
+            existing[0].dropped_at = None
+            re_added.append(student.name)
+
+    for sid in sorted(would_drop_ids):
+        enr, st = by_student_id[sid]
+        # Marked, never deleted and never unenrolled: the attendance records
+        # are real history and the D2L gradebook may still refer to them.
+        enr.dropped_at = now
+        dropped.append(st.name)
+
+    summary = {
+        "at": now.isoformat(timespec="seconds"),
+        "in_file": len(parsed),
+        "added": sorted(added),
+        "re_added": sorted(re_added),
+        "dropped": sorted(dropped),
+        "changed": changed,
+        "unchanged": unchanged,
+        "confirmed_drops": bool(confirmed and dropped),
+    }
+    course.roster_last_imported_at = now
+    course.roster_last_import_summary = json.dumps(summary)
 
     await db.commit()
+    log.info("roster import on course %s: %s added, %s re-added, %s dropped, "
+             "%s changed, %s unchanged", course_id, len(added), len(re_added),
+             len(dropped), len(changed), unchanged)
 
-    # Redirect back to course detail with flash-style query params
-    return RedirectResponse(
-        f"/instructor/course/{course_id}?import_new={new_count}&import_updated={updated_count}&import_enrolled={enrolled_count}",
-        status_code=302,
-    )
+    # No query parameters: a query string cannot carry a list of names, and
+    # the names are the alert. The course page reads the stored summary.
+    return RedirectResponse(f"/instructor/course/{course_id}", status_code=302)
 
 
 def _detail_ledger(student, sessions, statuses: dict, sc, _policy) -> str:
@@ -1421,10 +2007,15 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
         select(Session).where(Session.course_id == course_id).order_by(Session.started_at)
     )).scalars().all()
 
+    # The active roster only, and this one matters most: D2L rejects a row
+    # for a user who is no longer enrolled in the course as an unrecognised
+    # user, so a dropped student in this file is at best a confusing error in
+    # the import preview. Their record is not lost -- it stays on the course
+    # page under "Dropped from D2L classlist".
     students = (await db.execute(
         select(Student).join(CourseEnrollment).where(
             CourseEnrollment.course_id == course_id,
-            CourseEnrollment.role == "student",
+            *active_roster(),
         ).order_by(Student.name)
     )).scalars().all()
 

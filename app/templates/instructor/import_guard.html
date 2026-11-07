@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Check that classlist — Adsum{% endblock %}
+
+{% block content %}
+{# Shown instead of doing the import, when the uploaded file would remove more
+   than {{ threshold_percent }}% of the roster, or shares nobody at all with
+   it. Nothing has been changed at this point -- not the drops and not the
+   adds -- because a file that looks like the wrong file is not one whose adds
+   can be trusted either. #}
+<div class="page-header">
+    <h1>That classlist would remove {{ would_drop_count }} of your {{ active_count }} students</h1>
+    <p class="subtitle">{{ course_name }}{% if course_code %} — {{ course_code }}{% endif %}</p>
+</div>
+
+<div class="card">
+    <div class="alert alert-danger alert-permanent" role="alert">
+        <span aria-hidden="true">🛑</span>
+        <strong>Nothing was changed.</strong>
+        {% if reason == 'no_overlap' %}
+        The file you uploaded does not contain a single one of the
+        {{ active_count }} students currently on this course's roster. That
+        almost always means it is a different course's classlist, not that
+        your whole class dropped.
+        {% else %}
+        The file lists {{ in_file_count }} student{{ '' if in_file_count == 1 else 's' }}
+        and matches {{ matched_count }} of the {{ active_count }} already on
+        this roster, so importing it would mark
+        <strong>{{ would_drop_count }}</strong> student{{ '' if would_drop_count == 1 else 's' }}
+        as having dropped. Adsum refuses on its own when an import would
+        remove more than {{ threshold_percent }}% of a roster, because the
+        usual cause is the wrong file rather than that many real drops.
+        {% endif %}
+    </div>
+
+    <h2 style="font-size:1.05rem;">Who would be marked as dropped</h2>
+    <ul>
+        {% for name in would_drop_names[:summary_names_shown] %}
+        <li>{{ name }}</li>
+        {% endfor %}
+        {% if would_drop_names|length > summary_names_shown %}
+        <li class="text-muted">and {{ would_drop_names|length - summary_names_shown }} more</li>
+        {% endif %}
+    </ul>
+    <p class="help-text">
+        A dropped student is never deleted. Their attendance is kept and shown
+        on the course page, but they stop appearing in the gradebook export
+        and in every attendance count.
+    </p>
+
+    <h2 style="font-size:1.05rem;">What to check first</h2>
+    <ol class="checklist">
+        <li>In D2L, open <strong>Classlist</strong> for <em>this</em> course and
+            export it again. A file exported from another course, another
+            section, or a previous term looks perfectly valid here.</li>
+        <li>Make sure no <strong>search or filter</strong> was active when you
+            exported. A filtered export only contains the students you were
+            looking at, and every other student reads as a drop.</li>
+        <li>Check that you picked the <strong>Classlist</strong> export and not
+            the <strong>Grades</strong> export.</li>
+    </ol>
+
+    <hr>
+
+    <h2 style="font-size:1.05rem;">If this really is correct</h2>
+    <p>
+        If you have checked the file and those {{ would_drop_count }}
+        student{{ '' if would_drop_count == 1 else 's' }} really did leave the
+        course, choose the same file again here and tick the box. Adsum will
+        then reconcile the roster and tell you exactly what it changed.
+    </p>
+    <form method="post" action="/instructor/course/{{ course_id }}/import-roster"
+          enctype="multipart/form-data">
+        <div class="form-group">
+            <label for="roster_file">The D2L classlist CSV (choose the file again)</label>
+            <input type="file" id="roster_file" name="roster_file" accept=".csv" required
+                   aria-describedby="again_help">
+            <small id="again_help" class="help-text">
+                A browser will not let a page re-send a file you chose on the
+                previous screen, so it has to be selected once more.
+            </small>
+        </div>
+        {# Server-side confirmation, the same pattern as deleting a session:
+           a JS dialog can be skipped, a missing form field cannot. #}
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="confirm_drops" value="{{ confirm_value }}" required>
+                Yes — I checked the file, and these students have left the course.
+            </label>
+        </div>
+        <button type="submit" class="btn btn-danger">
+            Import anyway and mark {{ would_drop_count }} dropped
+        </button>
+        <a href="/instructor/course/{{ course_id }}" class="btn btn-outline">Cancel</a>
+    </form>
+</div>
+{% endblock %}

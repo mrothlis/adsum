@@ -271,14 +271,22 @@ Fine for trialling. For anything a colleague depends on, use real hosting.
 3. Check `https://your-host/healthz` returns `{"status":"ok"}`. Point your
    uptime monitor at it.
 
-### Your dashboard will be empty, and there is no way to fix that here
+### Your dashboard starts empty, and there are two ways to fill it
 
-Courses are not created by hand, and there is **no "add course" button
-anywhere in the interface**. The first time an instructor launches the tool
-from their D2L course, the course, the instructor account and the enrolment
-are all created automatically by that launch. Until section 6 is done, a fresh
-install has nothing in it: no courses, no students, no sessions, nothing to
-export.
+A fresh install has no courses, no students and no sessions. Pick whichever of
+these describes you:
+
+**You have D2L.** Do section 6. The first time an instructor launches the tool
+from their D2L course, the course, the instructor account and the enrolment are
+all created automatically by that launch. This gives the stronger identity: the
+LMS proves who each student is, so nobody can check in as somebody else.
+
+**You have no LMS.** Use **Dashboard → New course**, set the mode to
+**standalone**, and skip section 6 entirely. See section 6b below. Nothing about
+LTI, keys, secrets or Brightspace applies to you.
+
+Both kinds of course can exist on the same install, and the choice is per
+course.
 
 ### Recommended: one practice run with demo data first
 
@@ -376,6 +384,32 @@ page only comes into existence at step 6.
    set the geofence, the attendance policy and campus IP ranges. The roster
    import, which takes a D2L Classlist export, is on the course page itself.
 
+### The roster is reconciled only when you import a classlist
+
+**Adsum cannot poll D2L for the class list.** An LTI 1.1 launch carries the
+course and the person launching it and no roster at all, and the Valence
+`enrollments` API that could return one needs an OAuth application registered
+by a Brightspace *administrator* — the IT ticket this project exists to avoid.
+Do not promise users a roster that syncs itself.
+
+So the instructor exports the Classlist from D2L and imports it on the course
+page, and that import is a reconciliation: students on the file are added,
+students missing from it are **marked dropped rather than deleted** (their
+attendance is real history, and the D2L gradebook may still refer to them),
+someone who reappears in a later file is put back, and changed names,
+usernames and D2L IDs are reported. A dropped student is excluded from the
+gradebook export and from every attendance count, and shown separately on the
+course page with the date and the attendance they had.
+
+An import that would drop more than half the active roster, or that shares no
+students with a non-empty roster, is **refused outright and changes nothing**
+until the instructor confirms it explicitly — the common cause is a filtered
+or wrong-course export, not a real mass drop. Both thresholds are code
+constants in `app/routes/instructor.py`; like attendance policy they are
+deliberately not install settings. Because nothing is reconciled until an
+import happens, the course page and the dashboard warn when a roster has not
+been imported for about a week, or never.
+
 ### If you are not the Adsum administrator
 
 The course settings page deliberately does **not** show the consumer secret,
@@ -394,6 +428,64 @@ be forwarded to them.
 The secret must match on both sides at the same time. Change it at `/admin`
 and in the D2L tool configuration together, or every launch fails, for every
 instructor on the install.
+
+---
+
+## 6b. Running without an LMS (standalone mode)
+
+Skip this if you did section 6. This is the whole setup for an instructor with
+no D2L — or for anyone planning past D2L's LTI 1.1 retirement, since nothing
+here depends on LTI at all.
+
+1. Sign in and choose **New course** on the dashboard.
+2. Give it a name and code, and choose **No LMS — students claim their name
+   once (standalone)**.
+3. On the course page, **import your class roster**: any CSV with first name,
+   last name and a student ID column. In this mode the roster is also the list
+   students pick their own name from, so load it before the first class.
+4. Start a session and project the QR code as normal.
+
+The first time a student scans, they are asked who they are and pick their name.
+That binds their phone to that name and checks them in **in the same request** —
+there is no login round trip, so no second scan is needed. Every later scan is
+silent.
+
+Attendance leaves as a plain CSV: **Download a CSV for your gradebook** on the
+course page. Adsum does not know which gradebook you use and does not pretend
+to integrate with one.
+
+### What you are trading away, and what to do about it
+
+Be clear with yourself about this before you rely on it.
+
+The rotating QR code still proves **presence**: the code changes every twenty
+seconds, so a student has to be looking at the screen in the room. What this
+mode cannot prove on its own is **identity**. At that very first scan, nothing
+stops a student picking a classmate's name. With D2L that is impossible without
+being signed in as the classmate — the LMS has already proved who they are.
+
+The guards, and what you have to do:
+
+- **One name, one phone**, enforced by a unique index in the database. A second
+  phone claiming a bound name is refused outright.
+- **Refused claims are shown at the top of your course page**, by name and
+  time, until you acknowledge them. **Look at them.** That alert is the main
+  defence: the student whose name was taken is refused, comes to you, and you
+  can fix it while the class is still in the room.
+- **Release** a binding (course page → *Phones checked in as a student*) for a
+  new phone, a lost phone, or a wrong name. Releasing deletes **no attendance**.
+- Students marked dropped by a roster import are not claimable, and the claim
+  list never shows student ID numbers or usernames.
+
+**Single sign-on (Google or Microsoft) would remove claim-time impersonation
+entirely**, and is a known future option. It does not exist in Adsum today;
+nothing here speaks OAuth or OIDC.
+
+One operational difference: a D2L course keeps a full second copy of its
+attendance in the Brightspace gradebook, and `Restore from D2L` can rebuild the
+app from it. **A standalone course has no such mirror**, so your database
+backups (section 9) are the only copy. Download the attendance CSV from time to
+time as well.
 
 ---
 
@@ -538,12 +630,12 @@ Install the development dependencies first, otherwise `ruff` is not present:
 pip install -r requirements-dev.txt
 ```
 
-There are six scripts. **Two need no server:**
+There are nine scripts. **Two need no server:**
 
 ```bash
 python scripts/test_scoring.py           # the grade arithmetic
 python scripts/verify_install.py         # clean-install check
-ruff check app scripts run.py backup_db.py
+ruff check app scripts run.py backup_db.py alembic/env.py
 ```
 
 `verify_install.py` exports the committed tree with `git archive`, configures
@@ -551,7 +643,7 @@ it from `.env.example` alone, and starts it, which is also what CI does on
 every push. The app refuses to start until `SECRET_KEY` and `ADMIN_PASSWORD`
 are set, then creates the admin account and starts with no demo data.
 
-**Four need a running instance *and* a course with at least one enrolled
+**Seven need a running instance *and* a course with at least one enrolled
 student:**
 
 ```bash
@@ -559,20 +651,29 @@ python scripts/smoke_test.py             # end-to-end happy path
 python scripts/test_isolation.py         # instructors cannot see each other's data
 python scripts/test_admin_separation.py  # non-admins cannot change shared settings
 python scripts/test_admin_page.py        # /admin stays inside its boundary
+python scripts/test_security.py          # every hole that was once open
+python scripts/test_robustness.py        # every way a present student was marked absent
+python scripts/test_roster_sync.py       # roster adds, drops and the wrong-file guard
+python scripts/test_standalone.py        # claim-once identity, with no LMS
 ```
 
 They read `BASE_URL`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` from the environment
 or `.env`, and pick a course automatically. Set `TEST_COURSE_ID` to choose
-one.
+one. `test_standalone.py` also needs `SECRET_KEY`, because it mints an
+out-of-date QR token to prove such a token cannot claim an identity.
 
-A fresh install has no courses, so these four cannot pass until either D2L is
-connected (section 6) or you run against a `SEED_DEMO=true` throwaway
-database, as described in section 5. The quickest way to run the whole set the
-way CI does, on a scratch copy with its own database and port, is:
+A fresh install has no courses, so these cannot pass until you have one —
+either from D2L (section 6), created in the UI (section 6b), or from a
+`SEED_DEMO=true` throwaway database as described in section 5. The quickest
+way to run the whole set the way CI does, on a scratch copy with its own
+database and port, is:
 
 ```bash
 bash scripts/ci_local.sh
 ```
+
+Note that `ci_local.sh` and `verify_install.py` both export **committed**
+HEAD, so neither sees uncommitted work in your checkout.
 
 Run the isolation tests after any upgrade. They are the ones that catch a
 privacy regression.
@@ -592,7 +693,8 @@ privacy regression.
 | Live attendance list does not update | Reverse proxy is buffering server-sent events. See section 4. |
 | One failed login locks out everyone | The proxy is not forwarding `X-Forwarded-For`. |
 | "Nothing to export" | The course has no sessions. This is a deliberate guard, see section 9. |
-| The dashboard is empty and there is no way to add a course | Expected on a fresh install. Courses are created by the first D2L launch. See sections 5 and 6. |
+| The dashboard is empty on a fresh install | Expected. Either connect D2L and launch the link once (section 6), or use **New course** and run the course standalone (section 6b). |
+| A standalone student is told their name is already checked in on another phone | Somebody has already claimed that name. Check the refused-claim alert at the top of the course page, confirm who the student is, and **Release** the phone holding the name. No attendance is lost. |
 | A setting in `.env` seems to be ignored | The same name is set as a real environment variable, which wins. See section 3. |
 | `alembic upgrade head` fails with `NoSuchTableError: courses` | You ran it on an empty database. Start the app once instead. See section 10. |
 | `ruff: command not found` | `pip install -r requirements-dev.txt`. |

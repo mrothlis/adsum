@@ -6,6 +6,175 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — standalone mode: Adsum without an LMS
+
+A Course could only ever be created in two places, `app/routes/lti.py` and
+`app/seed.py`, and a student's identity at check-in came only from the signed
+session cookie an LTI launch issues. Those two facts were the whole of the
+app's dependency on D2L — and they meant a fresh install's dashboard was
+permanently empty for anyone without Brightspace, and that Adsum would stop
+working when D2L retires LTI 1.1 (no new 1.1 integrations after the February
+2027 release; launches stop late 2027).
+
+- **Courses can be created in the interface.** *Dashboard → New course*, owned
+  by the instructor who creates it. The dashboard's empty state now offers
+  both paths honestly — launch from D2L, or create one here — instead of
+  explaining that there is no button on purpose. A course created this way
+  works with everything that already existed: roster import with add/drop
+  reconciliation, sessions, the rotating QR, the typed code, per-course
+  policy, the geofence, campus IP ranges and the exports.
+- **Identity is a per-course mode.** `courses.mode` is `d2l` or `standalone`,
+  NOT NULL with a server default of `d2l`, so every existing row — including
+  the live course — keeps the LMS path and nothing about it changes. In
+  standalone mode the D2L-only settings (org unit id, deep link) and the
+  Brightspace import instructions are hidden rather than shown broken, and the
+  gradebook export becomes "download a CSV for whatever gradebook you use".
+- **Claim-once device binding.** With no LMS there is no cookie to read, so
+  the first time a student scans they pick their own name from the roster;
+  that binds their phone and checks them in **in the same request**. There is
+  no two-scan problem here because there is no login round trip. Every later
+  scan is silent, exactly as before.
+
+### Security — the limits of a claimed identity, enforced
+
+Standalone identity is weaker than an LMS vouching for a student, so the
+guards around it are the feature:
+
+- **A claim requires a valid, current QR token.** Claiming is only possible
+  from inside a live check-in, with a token that passes the same verification
+  a check-in does. Without this, anybody on the internet could bind themselves
+  to a student's name, and identity would no longer be tied to being in the
+  room. A correctly signed but out-of-date token is refused like any other.
+- **One active binding per student per course, enforced by the database.** A
+  partial unique index on `device_bindings(course_id, student_id) WHERE
+  released_at IS NULL`, following `uq_sessions_one_open_per_course`, because a
+  SELECT-then-INSERT loses the race between two phones claiming at the same
+  moment. The second device is **refused** — never silently allowed, never
+  silently moved — and the route catches `IntegrityError` rather than
+  returning 500. One phone also cannot hold two names.
+- **The device cookie is unforgeable and scoped.** Signed with the app's
+  existing `itsdangerous` machinery under its **own salt**, so an instructor
+  session cookie is not a valid device cookie and vice versa. It carries the
+  course, the student and the binding row, is named per course, and is
+  long-lived (about ten months) because it is the student's identity for the
+  term. It is `HttpOnly`, `SameSite=Lax` and `Secure` when `BASE_URL` is
+  HTTPS, like the session cookie. Revocation does not wait for the clock: the
+  binding row is re-read on every scan, so a release signs that phone out
+  immediately.
+- **The roster is not published.** The "who are you?" list shows **names
+  only** — never student ID numbers or usernames, which are education records
+  — and only students on the **active** roster, so somebody a classlist import
+  marked as dropped cannot be claimed.
+- **Claim attempts are rate limited**, following the typed-code pattern:
+  failures only, cleared on success, over a short window, so a student who
+  taps the wrong thing is not locked out in front of a class.
+- **Every claim, refused claim and release is logged.**
+
+### Added — instructor control over bindings
+
+- The course page lists which phone is checked in as which student and when,
+  with a **Release** action for a new phone, a lost phone or a wrong name.
+  **Releasing deletes no attendance**: attendance belongs to the student, not
+  to the device.
+- **Refused claims are shown at the top of the course page**, by name and
+  time, as a permanent notice until the instructor acknowledges them. That is
+  the main defence against a mistaken or malicious bind, because it is the
+  only signal that reaches the person who can fix it while the class is still
+  in the room. Acknowledged conflicts are marked reviewed, not deleted.
+
+### Migration
+
+`a7f3c1d05b84`, additive and reversible: adds `courses.mode`, the
+`device_bindings` and `claim_conflicts` tables, and the partial unique index.
+Tested up, down and up again against a copy of a real backup, with attendance
+records intact in every direction; the downgrade touches no attendance.
+
+### Documentation
+
+README and `docs/INSTALL.md` carry a standalone section that states the trade
+rather than selling it: the rotating QR still proves the student is in the
+room, but at the first scan a student could claim a classmate's name, which is
+why one binding per student is enforced, why conflicts are surfaced, and why
+bindings can be released. Both say plainly that the D2L/LTI path gives
+stronger identity because the LMS vouches for it, that single sign-on would
+remove claim-time impersonation entirely and is a known future option that
+**does not exist today**, and that standalone mode is what keeps the tool
+usable as D2L retires LTI 1.1. `docs/INSTALL.md` section 11 also now lists all
+nine test scripts; it had drifted to six.
+
+### Tests
+
+`scripts/test_standalone.py` pins every invariant above: a claim with no
+token, a malformed token, a forged signature and an expired token are all
+refused with nothing written; a second device cannot claim a bound student;
+the database itself refuses a second active binding row; a dropped student is
+not claimable and is not on the list; five kinds of hand-made device cookie
+identify nobody; a binding for one course does not identify in another;
+releasing preserves attendance and frees the name; and a standalone course
+never shows a D2L setting. Added to `scripts/ci_local.sh` **and** the
+integration job in `.github/workflows/ci.yml` together.
+
+### Added — the classlist import is a reconciliation, not an append
+
+The import counted new and updated students and never noticed anybody who had
+**disappeared** from the classlist. A student who dropped stayed enrolled
+forever, kept accruing absences, stayed in every denominator, and kept
+appearing in the D2L gradebook export. The whole record of an import was a
+transient banner reading "32 new, 4 updated".
+
+- **Drops are detected and named.** A student on the roster who is missing
+  from a newly imported classlist is marked dropped (`dropped_at` on
+  `course_enrollments`) — **marked, never deleted and never unenrolled**,
+  because their attendance is real history and the D2L gradebook may still
+  refer to them. The same rule the app already follows for instructor
+  accounts. A student who reappears in a later import is un-dropped and
+  reported as a re-add, with their earlier attendance intact.
+- **A wrong file cannot drop the class.** Importing a filtered export,
+  another section's classlist or last term's file is the realistic accident,
+  and it used to be indistinguishable from a mass drop. The import now
+  **refuses and changes nothing** — not the drops and not the adds — when a
+  file would drop more than half the active roster, or when it shares no
+  students at all with a non-empty roster. The refusal page names how many
+  would go and who, explains what to check in D2L, and offers a deliberate
+  server-side confirmation (the same pattern as deleting a session) for the
+  case where it really is correct. Half is the threshold because a real
+  semester's drops are a handful of students, not a third of a section.
+- **Dropped students are gone from every grade-facing surface, with their
+  data kept.** Audited and fixed: the course roster and its count, the
+  early-alert list, the live session page's enrolled total and its
+  mark-present list, the live attendance API and its SSE stream, the
+  analytics enrolled count, both CSV exports, and the D2L gradebook export —
+  where a dropped student's row would be rejected by D2L as an unrecognised
+  user. They are shown instead in a collapsed **Dropped from the D2L
+  classlist** section with the date they were detected as gone and the
+  attendance they had accumulated, so a dispute can still be settled.
+  Marking a dropped student present is refused.
+- **The import summary is permanent and names names.** It lists who was
+  added, who was re-added, who has gone and whose name, username or D2L ID
+  changed (with both values, because the export matches on the username and a
+  silent change stops a grade landing). Stored on the course rather than
+  passed in the redirect, since a query string cannot carry a list of names.
+- **A stale roster says so.** The course page and the dashboard card show
+  when a classlist was last imported in plain language, and warn after a
+  week or when one has never been imported. Worded to be honest: Adsum
+  **cannot** ask D2L who has added or dropped — an LTI 1.1 launch carries no
+  roster and the Valence enrollments API needs an OAuth application
+  registered by a Brightspace administrator — so the warning says to
+  re-download the classlist, never that D2L was checked.
+- An LTI launch by a student previously marked dropped un-drops them: D2L
+  granting them access to the course is fresher evidence than a classlist
+  file from last week, and otherwise a re-added student could not check in
+  until the instructor remembered to import again.
+- The "not listed in D2L" flag now explains both of its meanings — a new add
+  that has not been re-imported yet, or somebody who should not be there.
+- Migration `c3b7f0d41a92` (additive, reversible): `dropped_at` on
+  `course_enrollments`, `roster_last_imported_at` and
+  `roster_last_import_summary` on `courses`. NULL everywhere for existing
+  rows, which is the honest translation — every existing enrollment is still
+  on the classlist as far as the old additive import could tell, and no
+  course has an import the app ever observed. Pinned by
+  `scripts/test_roster_sync.py`, which runs in CI.
+
 ### Fixed — a present student could be recorded absent
 
 These were reproduced against a disposable copy before being fixed, and each

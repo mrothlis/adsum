@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import json
 import logging
 import secrets
 
@@ -85,6 +87,20 @@ async def seed_demo_data() -> None:
             db.add(s)
             await db.flush()
             db.add(CourseEnrollment(course_id=course.id, student_id=s.id, role="student"))
+
+        # The demo roster stands in for an imported D2L classlist, so record
+        # that an import happened -- otherwise the demo course opens with a
+        # stale-roster warning that describes the seed script rather than
+        # anything a reader of the screenshots should worry about.
+        _now = dt.datetime.utcnow()
+        course.roster_last_imported_at = _now
+        course.roster_last_import_summary = json.dumps({
+            "at": _now.isoformat(timespec="seconds"),
+            "in_file": len(student_data),
+            "added": [name for name, _u, _s in student_data],
+            "re_added": [], "dropped": [], "changed": [],
+            "unchanged": 0, "confirmed_drops": False,
+        })
 
         await db.commit()
         log.info("Demo data seeded: 1 institution, 1 course, 1 instructor, 10 students")

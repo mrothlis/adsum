@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Who are you? — Adsum{% endblock %}
+
+{% block content %}
+{#  Student-facing page, so it loads NO third-party resources and shows no
+    technical reason for anything. Every value below goes through Jinja's
+    autoescaping; nothing here is built by string concatenation into HTML or
+    by a template literal into innerHTML, both of which were live XSS holes
+    in this app before.
+
+    It shows NAMES ONLY. A student ID number or a university username is an
+    education record, and this page is reachable by anyone holding a current
+    QR token -- which is every person in the room. Classmates already know
+    who is in the class; they do not know each other's ID numbers. #}
+<div class="checkin-container">
+    <div class="card checkin-card">
+        <h1><span aria-hidden="true">📱</span> Check In</h1>
+
+        {% if error %}
+        <div class="checkin-result error" role="alert">
+            <div class="result-icon" aria-hidden="true">⚠️</div>
+            <p><strong>You are not checked in yet.</strong></p>
+            <p>{{ error }}</p>
+        </div>
+        {% endif %}
+
+        <p class="text-muted">
+            First time on this phone for <strong>{{ course.name }}</strong>.
+            Tap your name once and you are done — this phone will know you
+            from now on.
+        </p>
+
+        {% if token %}
+        <form method="post" action="/student/claim" id="checkin-form"
+              data-geofence="{{ '1' if geofence_required else '0' }}">
+            <input type="hidden" name="token" value="{{ token }}">
+            <input type="hidden" name="gps_lat" id="gps_lat">
+            <input type="hidden" name="gps_lon" id="gps_lon">
+            <div class="form-group">
+                <label for="student_id">Your name</label>
+                <select id="student_id" name="student_id" required
+                        style="font-size:1.1rem;padding:0.75rem;">
+                    <option value="" selected disabled>Choose your name…</option>
+                    {% for s in students %}
+                    <option value="{{ s.id }}">{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block btn-lg" id="checkin-btn">
+                <span aria-hidden="true">✅</span> That's me — check me in
+            </button>
+            <p id="geo-error" class="text-danger text-center" style="display:none;margin-top:0.75rem;" role="alert">
+                <span aria-hidden="true">📍</span> Location is required to check in. Allow location access, then tap the button again.
+            </p>
+        </form>
+        {% if not students %}
+        <p class="ask-instructor">
+            There is no class roster yet, so there is no name to pick. Tell
+            your instructor.
+        </p>
+        {% endif %}
+        <p class="text-muted small" style="margin-top:1rem;">
+            Pick the wrong name by mistake? Tell your instructor — they can
+            undo it in a few seconds. Each name can only be used on one
+            phone, so nobody else can check in as you afterwards.
+        </p>
+        {% else %}
+        <a href="/student/checkin" class="btn btn-primary btn-block btn-lg">Scan again</a>
+        {% endif %}
+        <p class="ask-instructor">Still not working? Tell your instructor before you leave.</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/checkin.js"></script>
+{% endblock %}

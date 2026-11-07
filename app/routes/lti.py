@@ -271,6 +271,15 @@ async def lti_launch(request: Request, db: AsyncSession = Depends(get_db)):
             CourseEnrollment.course_id == course.id, CourseEnrollment.student_id == student.id))).scalar_one_or_none()
         if not enr:
             db.add(CourseEnrollment(course_id=course.id, student_id=student.id, role="student"))
+        elif enr.dropped_at is not None:
+            # A previous classlist import marked them dropped, and D2L has
+            # just launched them into this course anyway -- which means D2L
+            # currently grants them access. That is fresher evidence than the
+            # file, so un-drop them rather than leave a re-added student
+            # unable to check in until the instructor remembers to re-import.
+            log.info("LTI launch un-dropped student %s on course %s",
+                     student.id, course.id)
+            enr.dropped_at = None
         await db.commit()
         resp = RedirectResponse("/student/checkin", status_code=302)
         set_session_cookie(resp, {"role": "student", "student_id": student.id, "name": student.name, "lti": True})

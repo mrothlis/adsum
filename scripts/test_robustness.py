@@ -406,9 +406,25 @@ def main() -> int:
         # saved from Excel returned a bare 500, imported nothing, explained
         # nothing, and left the roster empty -- so nobody in that class could
         # check in at all.
-        classlist = ("First Name,Last Name,OrgDefinedId,Username,Email,Role\r\n"
-                     f"Jos\u00e9,Garc\u00eda,#{PROBE_TAG}-cp1252,jgarcia,"
-                     "jgarcia@example.edu,Learner\r\n")
+        #
+        # The file has to carry the course's CURRENT roster as well as the new
+        # student. The import is a reconciliation now, so a one-line classlist
+        # would mean "everyone else dropped" and the wrong-file guard refuses
+        # it with 409 -- correctly. That guard is pinned in
+        # scripts/test_roster_sync.py; what is being tested here is the
+        # decoding, so the file is a realistic add-one-student classlist.
+        current = db().execute(
+            "SELECT s.name, s.student_id_number, COALESCE(s.d2l_username, '') "
+            "FROM course_enrollments e JOIN students s ON s.id = e.student_id "
+            "WHERE e.course_id=? AND e.role='student' AND e.dropped_at IS NULL",
+            (course_id,)).fetchall()
+        lines = ["First Name,Last Name,OrgDefinedId,Username,Email,Role"]
+        for name, sid_num, d2l_username in current:
+            first, _, last = (name or "").partition(" ")
+            lines.append(f"{first},{last},{sid_num},{d2l_username},,Learner")
+        lines.append(f"Jos\u00e9,Garc\u00eda,#{PROBE_TAG}-cp1252,jgarcia,"
+                     "jgarcia@example.edu,Learner")
+        classlist = "\r\n".join(lines) + "\r\n"
         r = requests.post(f"{BASE_URL}/instructor/course/{course_id}/import-roster",
                           cookies=admin, allow_redirects=False, timeout=60,
                           files={"roster_file": ("classlist.csv",
@@ -421,6 +437,10 @@ def main() -> int:
         check("and the student was actually imported", bool(imported), str(imported))
         check("with the accents intact",
               bool(imported) and imported[0] == "Jos\u00e9 Garc\u00eda", str(imported))
+        check("and no existing student was marked dropped by it",
+              db().execute(
+                  "SELECT COUNT(*) FROM course_enrollments WHERE course_id=? "
+                  "AND dropped_at IS NOT NULL", (course_id,)).fetchone()[0] == 0)
 
         r = requests.post(f"{BASE_URL}/instructor/course/{course_id}/import-roster",
                           cookies=admin, allow_redirects=False, timeout=60,

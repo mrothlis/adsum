@@ -144,3 +144,17 @@ jobs:
 
       - name: Robustness regressions
         run: python scripts/test_robustness.py
+
+      # The wrong-file guard and the exclusion of dropped students from the
+      # D2L export. A failure here changes real grades, so it runs with the
+      # rest of the integration job rather than being left to a local run.
+      - name: Roster reconciliation
+        run: python scripts/test_roster_sync.py
+
+      # Standalone mode's claim-once identity. Every check here is a security
+      # invariant: a claim without a valid QR token, a second device claiming
+      # a bound student, a dropped student being claimable, or a forgeable
+      # device cookie are all impersonation, so this runs with the rest of
+      # the integration job rather than being left to a local run.
+      - name: Standalone claim-once identity
+        run: python scripts/test_standalone.py

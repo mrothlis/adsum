@@ -83,7 +83,7 @@ FAILED=""
 # robustness suites were added to CI and not here, so this script reported
 # "ALL CI INTEGRATION TESTS PASS LOCALLY" while skipping two of the six.
 for script in smoke_test test_isolation test_admin_separation test_admin_page \
-              test_security test_robustness; do
+              test_security test_robustness test_roster_sync test_standalone; do
   printf '%-26s ' "$script"
   if OUT="$("$PY" "scripts/${script}.py" 2>&1)"; then
     echo "PASS"

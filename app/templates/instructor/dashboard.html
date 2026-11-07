@@ -3,9 +3,31 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>Instructor Dashboard</h1>
-    <p class="subtitle">Welcome back, {{ user.name }}</p>
+    <div class="page-header-row">
+        <div>
+            <h1>Instructor Dashboard</h1>
+            <p class="subtitle">Welcome back, {{ user.name }}</p>
+        </div>
+        <div class="page-actions">
+            <a href="/instructor/courses/new" class="btn btn-primary">
+                <span aria-hidden="true">➕</span> New course
+            </a>
+        </div>
+    </div>
 </div>
+
+{# Deleting a course redirects here, and without this the only confirmation
+   was the course quietly being gone. Matches the course page's banner. #}
+{% if request.query_params.get('notice') %}
+<div class="alert alert-success flash" role="status">
+    <span aria-hidden="true">✅</span> {{ request.query_params.get('notice') }}
+</div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-error alert-permanent" role="alert">
+    <span aria-hidden="true">❌</span> {{ request.query_params.get('error') }}
+</div>
+{% endif %}
 
 {% if alerts %}
 <div class="card alert-card">
@@ -37,6 +59,11 @@
         {% if course.course_code %}
         <span class="badge">{{ course.course_code }}</span>
         {% endif %}
+        {# Which identity path this course uses, because it changes what the
+           instructor has to do at the start of term. #}
+        {% if course.is_standalone %}
+        <span class="badge badge-muted" title="Students claim their name on first scan. No LMS.">Standalone</span>
+        {% endif %}
 
         {% if course.id in active_sessions %}
         <div class="session-active">
@@ -58,17 +85,42 @@
             <a href="/instructor/course/{{ course.id }}/export">Download spreadsheet</a>
             <a href="/instructor/course/{{ course.id }}/settings">Settings</a>
         </div>
+
+        {# When the roster was last imported, in plain language. Adsum cannot
+           ask D2L who has added or dropped, so this is a statement about what
+           the instructor last uploaded and must never read as "we checked". #}
+        {% set rs = roster_status.get(course.id) if roster_status else None %}
+        {% if rs %}
+        {% if rs.stale %}
+        <p class="alert alert-warning alert-permanent" role="alert"
+           style="margin:0.75rem 0 0;font-size:0.85rem;">
+            <span aria-hidden="true">⚠️</span>
+            <strong>Roster may be out of date.</strong> {{ rs.phrase }}
+            Import a fresh D2L classlist to see who has added or dropped.
+        </p>
+        {% else %}
+        <p class="text-muted" style="margin:0.75rem 0 0;font-size:0.8rem;">
+            <span aria-hidden="true">🗓️</span> {{ rs.phrase }}
+        </p>
+        {% endif %}
+        {% endif %}
     </div>
     {% else %}
     <div class="empty-state" style="grid-column: 1 / -1;">
         <h3>No courses yet. That is normal on day one.</h3>
         <p>
-            Adsum does not have a Create Course button, on purpose. A course
-            appears here the first time you open the Adsum link from inside
-            that course in D2L. D2L tells Adsum the course name, the code and
-            who you are, so nothing has to be typed twice.
+            A course gets into Adsum one of two ways, and they lead to the same
+            app — the same rotating QR code, the same roster import, the same
+            attendance policy, the same exports. They differ only in how Adsum
+            learns <em>who</em> scanned.
         </p>
-        <p><strong>Do this once per course:</strong></p>
+
+        <h4 style="margin-bottom:0.25rem;">1. Launch it from D2L</h4>
+        <p>
+            Best if you have Brightspace. D2L tells Adsum the course name, the
+            code and who you are, so nothing is typed twice — and because the
+            LMS vouches for each student, nobody can check in as a classmate.
+        </p>
         <ol>
             <li>In D2L, open the course.</li>
             <li>Go to <strong>Content</strong>.</li>
@@ -83,7 +135,7 @@
             an administrator, so you can set those now.
         </p>
         <p class="next-step">
-            <a href="/admin" class="btn btn-primary">Set the LTI key and secret</a>
+            <a href="/admin" class="btn btn-outline">Set the LTI key and secret</a>
         </p>
         {% else %}
         <p>
@@ -91,6 +143,24 @@
             Ask whoever administers this server to set them.
         </p>
         {% endif %}
+
+        <h4 style="margin:1.25rem 0 0.25rem;">2. Create one here, for standalone use</h4>
+        <p>
+            Best if you have no LMS, or your institution's D2L is not an option.
+            Nothing to configure: you import a roster, and the first time a
+            student scans they pick their own name, which binds that phone to
+            them for the term. Each name can only be claimed on one phone, and
+            you are shown any clash.
+        </p>
+        <p>
+            Be aware of the trade: at that very first scan a student could pick
+            a classmate's name. That is why one phone per name is enforced, why
+            clashes are shown to you, and why you can release a binding. The
+            D2L path is the stronger one.
+        </p>
+        <p class="next-step">
+            <a href="/instructor/courses/new" class="btn btn-primary">Create a course here</a>
+        </p>
     </div>
     {% endfor %}
 </div>

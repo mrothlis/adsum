@@ -10,7 +10,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Course, CourseEnrollment, Instructor, Session, Student
+from app.models import Course, CourseEnrollment, Instructor, Session, Student, active_roster
 
 
 async def enrolled_student(db: AsyncSession, course_id: int, student_id: int):
@@ -23,13 +23,19 @@ async def enrolled_student(db: AsyncSession, course_id: int, student_id: int):
     every student on the installation and wrote rows against other
     professors' students. That is the exact guarantee test_isolation.py
     exists to protect, so any route that accepts a student_id must call this.
+
+    A student marked dropped by a classlist import is NOT on the roster for
+    this purpose: the routes that call this are the marking routes, and
+    recording fresh attendance for somebody who left the course is exactly
+    what the drop is meant to stop. Their existing records are untouched and
+    still shown on the course page.
     """
     if not isinstance(student_id, int) or student_id <= 0:
         return None
     on_roster = (await db.execute(select(CourseEnrollment.id).where(
         CourseEnrollment.course_id == course_id,
         CourseEnrollment.student_id == student_id,
-        CourseEnrollment.role == "student",
+        *active_roster(),
     ))).scalar_one_or_none()
     return await db.get(Student, student_id) if on_roster else None
 
