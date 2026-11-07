@@ -10,7 +10,7 @@ python-multipart==0.0.33
 python-dotenv==1.2.4
 itsdangerous==2.2.0
 qrcode[pil]==8.2
-pillow==12.3.0
+pillow==13.0.0
 sse-starlette==3.6.0
 
 # Schema migrations. Required at runtime: the app stamps a newly created
