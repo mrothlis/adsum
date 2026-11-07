@@ -57,8 +57,11 @@ class Course(Base):
     # which keeps existing installs behaving exactly as before.
     allowed_unexcused_absences: Mapped[Optional[int]] = mapped_column(Integer)
     late_threshold_minutes: Mapped[Optional[int]] = mapped_column(Integer)
-    late_counts_present: Mapped[bool] = mapped_column(Boolean, default=True,
-                                                      server_default="1", nullable=False)
+    # Share of a class a late arrival earns, 0-100. NULL = use the default
+    # (100). A percentage rather than a yes/no switch because the instructor
+    # marks late arrivals by hand and that is the moment they decide how much
+    # credit is fair.
+    late_credit_percent: Mapped[Optional[int]] = mapped_column(Integer)
 
     institution: Mapped[Optional["Institution"]] = relationship(back_populates="courses")
     enrollments: Mapped[List["CourseEnrollment"]] = relationship(back_populates="course", cascade="all, delete-orphan")

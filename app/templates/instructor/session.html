@@ -113,16 +113,30 @@
                 <option value="{{ s.id }}">{{ s.name }}</option>
                 {% endfor %}
             </select>
-            <button type="submit" class="btn btn-outline"
-                    title="For a student whose phone or location failed, or who sorted it out after class">
-                {% if session.ended_at %}Add to this session{% else %}Mark Present{% endif %}
+            <button type="submit" name="status" value="present" class="btn btn-outline"
+                    title="Full credit. For a student whose phone or location failed, or who sorted it out after class">
+                Present
+            </button>
+            <button type="submit" name="status" value="late" class="btn btn-outline"
+                    title="A late arrival. Worth {{ policy.late_credit_percent }}% of a class on this course, which you set in Course Settings.">
+                Late{% if policy.late_credit_percent < 100 %}
+                <span class="text-muted">({{ policy.late_credit_percent }}%)</span>
+                {% endif %}
             </button>
             <button type="submit" formaction="/instructor/session/{{ session.id }}/mark-excused"
                     class="btn btn-outline"
                     title="Excused absence: dropped from the denominator, does not use one of the free absences">
-                Mark Excused
+                Excused
             </button>
         </form>
+        <p class="text-muted" style="margin-top:0.5rem;font-size:0.9rem;">
+            Someone who walks in after the code is down talks to you, and you
+            park them here. <b>Late</b> is worth
+            {{ policy.late_credit_percent }}% of a class on this course
+            ({{ policy.describe_late() }}) &mdash; change that in
+            <a href="/instructor/course/{{ course.id }}/settings">Course Settings</a>.
+            Works on an ended session too.
+        </p>
         {% endif %}
     </div>
 </div>

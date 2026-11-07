@@ -37,8 +37,10 @@ from app.models import (
 )
 from app.scoring import (
     DEFAULT_ALLOWED_UNEXCUSED,
+    DEFAULT_LATE_CREDIT_PERCENT,
     DEFAULT_LATE_THRESHOLD_MINUTES,
     EXCUSED_STATUS,
+    PRESENT_STATUSES,
     policy_for,
     score,
 )
@@ -207,8 +209,13 @@ async def _compute_alerts(db: AsyncSession, course: Course) -> list:
         records = (await db.execute(att_stmt)).scalars().all()
         attended_session_ids = {r.session_id for r in records}
         attended = len(attended_session_ids)
+        # Split by status: a late arrival may be worth only part of a class,
+        # so present and late cannot be collapsed into one count any more.
+        _late = len({r.session_id for r in records if r.status == "late"})
+        _present = max(0, attended - _late)
         _exc = await _excused_count(db, student.id, session_ids)
-        pct = score(total_sessions, attended, _exc, _policy.allowed_unexcused).pct
+        pct = score(total_sessions, _present, _late, _exc,
+                    _policy.allowed_unexcused, _policy.late_credit_percent).pct
 
         # Consecutive absences (from most recent)
         consecutive = 0
@@ -274,11 +281,20 @@ async def course_detail(
                 AttendanceRecord.status.in_(["present", "late"]),
             )
             attended = (await db.execute(att_stmt)).scalar() or 0
+            _late = (await db.execute(select(func.count(AttendanceRecord.id)).where(
+                AttendanceRecord.student_id == s.id,
+                AttendanceRecord.session_id.in_(session_ids),
+                AttendanceRecord.status == "late",
+            ))).scalar() or 0
         else:
             attended = 0
+            _late = 0
+        _present = max(0, attended - _late)
         _exc = await _excused_count(db, s.id, session_ids)
-        _sc = score(total_sessions, attended, _exc, _policy.allowed_unexcused)
+        _sc = score(total_sessions, _present, _late, _exc,
+                    _policy.allowed_unexcused, _policy.late_credit_percent)
         student_stats.append({"student": s, "attended": attended, "total": total_sessions,
+                              "late": _late,
                               "pct": _sc.pct, "excused": _sc.excused,
                               "unexcused": _sc.unexcused, "forgiven": _sc.forgiven,
                               "over_limit": _sc.unexcused_over_limit})
@@ -351,26 +367,45 @@ async def mark_present(
     session_id: int,
     db: AsyncSession = Depends(get_db),
     student_id: int = Form(...),
+    status: str = Form("present"),
 ):
-    """Instructor manually marks a student present (phone dead, GPS denied, etc.)."""
+    """Instructor marks a student by hand (dead phone, GPS denied, late arrival).
+
+    Takes a status because this is the real decision point for a late
+    arrival. The QR code is normally only projected at the start of class, so
+    somebody who walks in at ten past cannot scan at all -- they talk to the
+    instructor, who marks them here and chooses what that is worth. An
+    automatic clock-based "late" almost never fires in practice.
+    """
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
     session, course = await owned_session(db, user, session_id)
     if not session:
         return RedirectResponse(f"/instructor/session/{session_id}", status_code=302)
+
+    # Whitelist, never the raw form value: anything else would become an
+    # unknown status that scoring silently treats as an absence.
+    if status not in ("present", "late", "excused"):
+        status = "present"
+
     # Deliberately allowed on an ENDED session: students routinely sort out a
     # missed check-in after class, and the roll would otherwise be frozen wrong.
     existing = (await db.execute(select(AttendanceRecord).where(
         AttendanceRecord.session_id == session_id,
         AttendanceRecord.student_id == student_id,
     ))).scalar_one_or_none()
-    if not existing:
+    if existing:
+        # Correcting an earlier mark is the common case -- an instructor who
+        # clicked Present then learns the student was late should not have to
+        # unmark first.
+        existing.status = status
+    else:
         db.add(AttendanceRecord(
             session_id=session_id, student_id=student_id,
-            token_used="manual", status="present",
+            token_used="manual", status=status,
         ))
-        await db.commit()
+    await db.commit()
     return RedirectResponse(f"/instructor/session/{session_id}", status_code=302)
 
 
@@ -473,6 +508,8 @@ async def session_view(request: Request, session_id: int, db: AsyncSession = Dep
         "enrolled_count": enr_count,
         "missing_students": missing_students,
         "qr_rotation_seconds": settings.QR_ROTATION_SECONDS,
+        # So the Late button can say what it will cost the student.
+        "policy": policy_for(course),
     })
 
 
@@ -563,6 +600,7 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
         row = [student.student_id_number, student.name]
         present_count = 0
         excused_count = 0
+        late_count = 0
         for sid in session_ids:
             rec = (await db.execute(
                 select(AttendanceRecord).where(
@@ -570,7 +608,10 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
                     AttendanceRecord.student_id == student.id,
                 )
             )).scalar_one_or_none()
-            if rec and rec.status in _policy.present_statuses:
+            if rec and rec.status == "late":
+                row.append("Late")
+                late_count += 1
+            elif rec and rec.status in PRESENT_STATUSES:
                 row.append(rec.status.capitalize())
                 present_count += 1
             elif rec and rec.status == EXCUSED_STATUS:
@@ -578,9 +619,9 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
                 excused_count += 1
             else:
                 row.append("Absent")
-        row.append(str(present_count))
-        _sc = score(len(sessions), present_count, excused_count,
-                    _policy.allowed_unexcused)
+        row.append(str(present_count + late_count))
+        _sc = score(len(sessions), present_count, late_count, excused_count,
+                    _policy.allowed_unexcused, _policy.late_credit_percent)
         row.append(str(_sc.excused))
         row.append(str(_sc.unexcused))
         row.append(f"{_sc.pct}%")
@@ -617,6 +658,7 @@ async def course_settings(request: Request, course_id: int, db: AsyncSession = D
         # will actually give them.
         "default_allowed_absences": DEFAULT_ALLOWED_UNEXCUSED,
         "default_late_threshold": DEFAULT_LATE_THRESHOLD_MINUTES,
+        "default_late_credit": DEFAULT_LATE_CREDIT_PERCENT,
     })
 
 
@@ -643,7 +685,7 @@ async def save_course_settings(
     policy_section: Optional[str] = Form(None),
     allowed_unexcused_absences: Optional[str] = Form(None),
     late_threshold_minutes: Optional[str] = Form(None),
-    late_counts_present: bool = Form(False),
+    late_credit_percent: Optional[str] = Form(None),
 ):
     user = require_instructor(request)
     if not user:
@@ -691,7 +733,9 @@ async def save_course_settings(
         # mean "inherit the institution default".
         course.allowed_unexcused_absences = _optional_int(allowed_unexcused_absences)
         course.late_threshold_minutes = _optional_int(late_threshold_minutes)
-        course.late_counts_present = late_counts_present
+        # Blank means "use the default", same as the other two fields.
+        _lc = _optional_int(late_credit_percent)
+        course.late_credit_percent = None if _lc is None else max(0, min(100, _lc))
 
     # Institution-level D2L settings are deliberately NOT accepted here. They
     # are shared by every course, so a global change must not happen inside a
@@ -1078,6 +1122,11 @@ def _detail_ledger(student, sessions, statuses: dict, sc, _policy) -> str:
         entries.append((_to_local(s.started_at), statuses.get(s.id)))
     summary = (f"{sc.attended}/{sc.counted_total} present, "
                f"{sc.unexcused} unexcused ({_policy.allowed_unexcused} allowed)")
+    # Say what a late arrival was worth, but only when it is not the default:
+    # the cell goes into D2L and a student querying their grade should be able
+    # to see the rule that produced it.
+    if sc.late and not _policy.late_counts_fully:
+        summary += f", {_policy.describe_late()}"
     if sc.excused:
         summary += f", {sc.excused} excused"
     return ledger.build(entries, summary)
@@ -1158,11 +1207,18 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
                 AttendanceRecord.status.in_(["present", "late"]),
             )
             attended = (await db.execute(att_stmt)).scalar() or 0
+            _late = (await db.execute(select(func.count(AttendanceRecord.id)).where(
+                AttendanceRecord.student_id == student.id,
+                AttendanceRecord.session_id.in_(session_ids),
+                AttendanceRecord.status == "late",
+            ))).scalar() or 0
         else:
             attended = 0
+            _late = 0
 
         _exc = await _excused_count(db, student.id, session_ids)
-        sc = score(total_sessions, attended, _exc, _policy.allowed_unexcused)
+        sc = score(total_sessions, max(0, attended - _late), _late, _exc,
+                   _policy.allowed_unexcused, _policy.late_credit_percent)
         pct = sc.pct
 
         # OrgDefinedId: prefer d2l_user_id, fall back to student_id_number

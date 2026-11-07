@@ -85,15 +85,17 @@
             </div>
         </div>
         <div class="form-group">
-            <label style="display:flex;align-items:center;gap:0.5rem;">
-                <input type="checkbox" name="late_counts_present" value="true"
-                       {% if course.late_counts_present %}checked{% endif %}>
-                Count a late arrival as present
-            </label>
+            <label for="late_credit_percent">A late arrival is worth (% of a class)</label>
+            <input type="number" min="0" max="100" step="5"
+                   id="late_credit_percent" name="late_credit_percent"
+                   value="{{ course.late_credit_percent if course.late_credit_percent is not none else '' }}"
+                   placeholder="{{ default_late_credit }} (default)">
             <small class="text-muted">
-                On, a late check-in counts fully towards attendance and is simply
-                labelled Late. Off, it counts as an absence for grading while the
-                arrival time is still recorded.
+                <b>100</b> means a late arrival counts as a full class.
+                <b>0</b> means it counts as an absence. <b>50</b> gives half
+                credit. In practice you will usually be marking late arrivals
+                by hand &mdash; the QR code is only up at the start of class
+                &mdash; and this is what that mark is worth.
             </small>
         </div>
     </div>

@@ -89,6 +89,9 @@ jobs:
           done
           echo "server failed to start"; exit 1
 
+      - name: Scoring arithmetic
+        run: python scripts/test_scoring.py
+
       - name: Smoke test
         run: python scripts/smoke_test.py
 

@@ -232,16 +232,25 @@ one installation can run entirely different policies.
 | Setting | Meaning | Default for a new course |
 |---|---|---|
 | **Unexcused absences forgiven** | How many a student may have before the percentage drops | 3 |
-| **Marked late after** | Minutes from session start before a check-in records as late | 10 |
-| **Late counts as present** | Off means late arrivals are labelled late *and* count as absent for grading | On |
+| **A late arrival is worth** | Share of a class a late arrival earns, 0–100% | 100% |
+| **Marked late after** | Minutes from session start before a *scanned* check-in records as late | 10 |
 
 Leave a box empty to use the default. Changing a policy re-scores that
 course's existing attendance immediately — the percentage is always computed
 from the records, never stored.
 
+**Late is mostly a manual decision, not a timer.** In practice you project the
+QR code at the start of class and take it down, so a student who arrives at
+ten past cannot scan at all — they talk to you, and you mark them from the
+session page with **Present**, **Late** or **Excused**. That click is where
+the real judgement happens, which is why late credit is a percentage rather
+than an on/off switch: you can decide a late arrival is worth half a class.
+The "marked late after" threshold only matters if you leave the code up.
+
 Excused absences are always removed from the denominator — a documented
 absence neither helps nor hurts. A course with no sessions yet scores 100, so
-nobody is punished in week one.
+nobody is punished in week one. Percentages round half **up**, so 62.5%
+becomes 63.
 
 **How much attendance is worth is set in D2L**, not here. Adsum emits 0–100;
 your gradebook's Maximum Points and category weighting decide what that means.
@@ -376,6 +385,7 @@ it from an export alone.
 ## Tests
 
 ```bash
+python scripts/test_scoring.py            # grade arithmetic; no server needed
 python scripts/verify_install.py         # clean-install check; no server needed
 python scripts/smoke_test.py             # end-to-end happy path
 python scripts/test_isolation.py         # one instructor cannot reach another's data
