@@ -50,21 +50,71 @@ def decode_session_token(token: str, max_age: int = MAX_AGE) -> Optional[dict]:
         return None
 
 
+def decode_session_with_issued_at(token: str, max_age: int = MAX_AGE):
+    """Return (payload, issued_at) so a session can be revoked by age.
+
+    itsdangerous already embeds the signing time, so revocation needs no
+    extra cookie field: comparing the issue time against an instructor's
+    sessions_valid_from lets a password reset or a deactivation invalidate
+    cookies that were handed out earlier.
+    """
+    try:
+        # itsdangerous returns (payload, timestamp) in this order.
+        payload, issued_at = _serializer.loads(token, max_age=max_age,
+                                               return_timestamp=True)
+        return payload, issued_at
+    except (BadSignature, SignatureExpired):
+        return None, None
+
+
 def set_session_cookie(response: Response, data: dict) -> None:
+    """Issue the session cookie.
+
+    SameSite=Lax, not None. This is the primary CSRF defence: a Lax cookie is
+    not sent on a cross-site POST, so an attacker's auto-submitting form can
+    no longer act as a signed-in instructor. It was None because of D2L, but
+    the documented setup ticks "Open as External Resource", so launches land
+    in a top-level window rather than an iframe. The LTI launch itself is a
+    cross-site POST that carries no cookie (it is authenticated by its OAuth
+    signature) and the 302 it returns is a top-level GET, which Lax does
+    send, so the flow still works.
+
+    Secure follows BASE_URL instead of being hard-coded true: a Secure cookie
+    is silently dropped on plain http, which made a non-TLS install
+    impossible to log into with no error shown anywhere.
+    """
     token = create_session_token(data)
     response.set_cookie(
         COOKIE_NAME, token,
-        max_age=MAX_AGE, httponly=True, samesite="none", secure=True,
+        max_age=MAX_AGE, httponly=True, samesite="lax",
+        secure=settings.BASE_URL.lower().startswith("https://"),
     )
 
 
 def clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(COOKIE_NAME)
+    # Must mirror the attributes the cookie was set with, or the browser
+    # keeps the original and "Logout" silently does nothing.
+    response.delete_cookie(
+        COOKIE_NAME, httponly=True, samesite="lax",
+        secure=settings.BASE_URL.lower().startswith("https://"),
+    )
 
 
 def get_current_user(request: Request) -> Optional[dict]:
-    """Read session cookie and return user dict or None."""
+    """Read the session cookie and return the user dict, or None.
+
+    The payload carries `_issued_at` so authorization can refuse a cookie
+    that predates a password reset or a deactivation.
+    """
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         return None
-    return decode_session_token(token)
+    payload, issued_at = decode_session_with_issued_at(token)
+    if payload is None:
+        return None
+    if issued_at is not None:
+        # itsdangerous returns an aware UTC datetime; the database stores
+        # naive UTC, so strip the tzinfo to keep the comparison valid.
+        payload = dict(payload)
+        payload["_issued_at"] = issued_at.replace(tzinfo=None)
+    return payload

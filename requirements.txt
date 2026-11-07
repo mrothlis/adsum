@@ -23,3 +23,4 @@ tzdata==2026.6
 
 # dev/test only (smoke test script)
 requests==2.34.2
+markupsafe==3.0.4

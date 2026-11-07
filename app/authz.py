@@ -10,7 +10,48 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Course, CourseEnrollment, Instructor, Session
+from app.models import Course, CourseEnrollment, Instructor, Session, Student
+
+
+async def enrolled_student(db: AsyncSession, course_id: int, student_id: int):
+    """Return the Student only if they are on THIS course's roster.
+
+    Owning the session is not enough. Every manual marking route took
+    student_id straight from a form, so an instructor could start a session in
+    their own course and then post arbitrary ids to it: the attendance API
+    read the names and institutional ID numbers back out, which enumerated
+    every student on the installation and wrote rows against other
+    professors' students. That is the exact guarantee test_isolation.py
+    exists to protect, so any route that accepts a student_id must call this.
+    """
+    if not isinstance(student_id, int) or student_id <= 0:
+        return None
+    on_roster = (await db.execute(select(CourseEnrollment.id).where(
+        CourseEnrollment.course_id == course_id,
+        CourseEnrollment.student_id == student_id,
+        CourseEnrollment.role == "student",
+    ))).scalar_one_or_none()
+    return await db.get(Student, student_id) if on_roster else None
+
+
+async def active_instructor(db: AsyncSession, user: dict | None):
+    """The signed-in Instructor, or None if the session is no longer valid.
+
+    A signed cookie alone was enough to keep working after an account was
+    deactivated, after an admin reset its password, and after the user
+    clicked Logout -- for the cookie's full 12 hours. Checking is_active and
+    sessions_valid_from here means revoking access revokes it.
+    """
+    if not user or user.get("role") != "instructor":
+        return None
+    instructor = await db.get(Instructor, user.get("instructor_id"))
+    if not instructor or not instructor.is_active:
+        return None
+    issued_at = user.get("_issued_at")
+    if (instructor.sessions_valid_from and issued_at
+            and issued_at < instructor.sessions_valid_from):
+        return None
+    return instructor
 
 
 async def owned_course(db: AsyncSession, user: dict | None, course_id: int):
@@ -22,7 +63,7 @@ async def owned_course(db: AsyncSession, user: dict | None, course_id: int):
     simply by changing the number -- a student-privacy breach the moment a
     second professor uses the system.
     """
-    if not user or user.get("role") != "instructor":
+    if not await active_instructor(db, user):
         return None
     course = await db.get(Course, course_id)
     if not course:
@@ -55,9 +96,10 @@ async def require_admin(db: AsyncSession, user: dict | None):
     empty page, so a privilege mistake is loud in testing instead of looking
     like a cosmetic bug.
     """
-    if not user or not await is_admin(db, user):
+    instructor = await active_instructor(db, user)
+    if not instructor or not instructor.is_admin:
         return None
-    return await db.get(Instructor, user.get("instructor_id"))
+    return instructor
 
 
 async def is_admin(db: AsyncSession, user: dict | None) -> bool:
@@ -67,7 +109,5 @@ async def is_admin(db: AsyncSession, user: dict | None) -> bool:
     every course on the install depends on. Ordinary instructors manage their
     own courses only.
     """
-    if not user or user.get("role") != "instructor":
-        return False
-    instructor = await db.get(Instructor, user.get("instructor_id"))
+    instructor = await active_instructor(db, user)
     return bool(instructor and instructor.is_admin)

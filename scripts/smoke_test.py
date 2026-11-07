@@ -105,23 +105,35 @@ def main():
                       allow_redirects=False)
     check("old password (admin123) rejected", r.status_code == 401)
 
-    # 4. login throttle (fake IP) — fixed IPs to avoid collision
-    # Use a fresh IP pair each run: the lockout lasts 10 minutes, so reusing a
-    # fixed IP makes a second run inside that window fail spuriously.
+    # 4. login throttle, per ACCOUNT rather than per IP.
+    #
+    # Deliberately aimed at a throwaway email, never at EMAIL: the throttle is
+    # now keyed on the account, so hammering the real admin would lock the
+    # account this test still needs and cascade into every later check. It
+    # also must not rely on spoofing X-Forwarded-For, because the app no
+    # longer trusts that header from an untrusted peer (that was both a
+    # bypass and a way to lock a real user out on demand).
     import random as _random
-    _octet = _random.randint(2, 250)
-    throttle_ip = f"203.0.113.{_octet}"
-    other_ip = f"198.51.100.{_octet}"
+    victim = f"throttle-probe-{_random.randint(100000, 999999)}@example.edu"
+    bystander = f"bystander-{_random.randint(100000, 999999)}@example.edu"
     codes = [requests.post(BASE + "/instructor/login",
-                           data={"email": EMAIL, "password": "wrong" + str(i)},
-                           headers={"X-Forwarded-For": throttle_ip},
+                           data={"email": victim, "password": "wrong" + str(i)},
                            allow_redirects=False).status_code for i in range(6)]
-    check("throttle 5×401 → 429", codes[:5] == [401]*5 and codes[5] == 429)
-    # Other IP unaffected
+    check("5 failures on one account then 429", codes[:5] == [401] * 5 and codes[5] == 429)
+
+    # A different account from the same address is unaffected, which is the
+    # point of keying on the account: one person's failures must not lock out
+    # everyone sharing a campus NAT address.
     r = requests.post(BASE + "/instructor/login",
-                      data={"email": EMAIL, "password": "wrong"},
-                      headers={"X-Forwarded-For": other_ip}, allow_redirects=False)
-    check("other IP unaffected", r.status_code == 401)
+                      data={"email": bystander, "password": "wrong"},
+                      allow_redirects=False)
+    check("another account from the same address still allowed", r.status_code == 401)
+
+    # And the real admin is still able to sign in.
+    r = requests.post(BASE + "/instructor/login",
+                      data={"email": EMAIL, "password": PW},
+                      allow_redirects=False)
+    check("throttling one account did not lock out the admin", r.status_code == 302)
 
     # 5. target course — create a fresh session
     global COURSE_ID

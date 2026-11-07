@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
@@ -25,6 +27,7 @@ from app.models import (
 from app.qr import verify_token
 from app.scoring import policy_for
 
+log = logging.getLogger("adsum.student")
 router = APIRouter(prefix="/student", tags=["student"])
 
 # Survives the round trip to D2L's login and back; holds only a session id.
@@ -214,16 +217,49 @@ async def do_checkin(
         session_id=session_id,
         student_id=student.id,
         token_used=token,
-        gps_lat=gps_lat,
-        gps_lon=gps_lon,
+        # Raw coordinates are intentionally not persisted: the distance and
+        # the in/out flag below are everything the geofence decision needs,
+        # and they are what SECURITY.md promises a student. Keeping the
+        # coordinates would turn an attendance record into a location history.
+        gps_lat=None,
+        gps_lon=None,
         gps_distance_m=distance_m,
         ip_address=client_ip,
         ip_in_range=bool(ip_ok) if ip_ok is not None else None,
         status=status,
     )
     db.add(record)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # The duplicate guard above is a SELECT, so two taps that race each
+        # other both pass it and the UNIQUE(session_id, student_id)
+        # constraint rejects the second. That used to escape as a bare HTTP
+        # 500: the student WAS recorded, but was shown "Internal Server
+        # Error" and reasonably concluded it had failed. A second tap on a
+        # slow phone is the normal case, not an edge case.
+        await db.rollback()
+        log.info("Duplicate check-in for student %s in session %s, already recorded",
+                 student.id, session_id)
+        return _checkin_response(
+            request, token, success=True, identified_student=student,
+            message="You are already checked in for this class. ✅")
+    except OperationalError:
+        # Almost always "database is locked". The driver already waited, so
+        # this is worth telling the student plainly rather than showing a
+        # traceback, and worth logging so the instructor can find out why a
+        # student says it did not work.
+        await db.rollback()
+        log.error("Check-in failed for student %s in session %s: database busy",
+                  student.id, session_id)
+        return _checkin_response(
+            request, token,
+            errors=["The server was busy and did not record you. Scan the "
+                    "code again, and tell your instructor if it keeps "
+                    "happening."])
 
+    log.info("Check-in recorded: student %s session %s status %s",
+             student.id, session_id, status)
     msg = "Checked in successfully! ✅"
     if status == "late":
         msg = "Checked in (marked late) ⏰"

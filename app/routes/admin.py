@@ -22,6 +22,7 @@ from a web form is how an app ends up unable to boot.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import pathlib
 import secrets
 from typing import Optional
@@ -38,6 +39,7 @@ from app.database import get_db
 from app.main import templates
 from app.models import Course, CourseEnrollment, Institution, Instructor
 
+log = logging.getLogger("adsum.admin")
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 FORBIDDEN = HTMLResponse(
@@ -204,7 +206,11 @@ async def toggle_admin(
             "+admin.", status_code=302)
 
     target.is_admin = not target.is_admin
+    # Changing someone's rights must also end their current session, so the
+    # new level applies immediately rather than after their cookie expires.
+    target.sessions_valid_from = dt.datetime.utcnow()
     await db.commit()
+    log.warning("Admin set is_admin=%s for %r", target.is_admin, target.email)
     verb = "now+an+admin" if target.is_admin else "no+longer+an+admin"
     return RedirectResponse(f"/admin?saved={target.email}+is+{verb}", status_code=302)
 
@@ -230,7 +236,13 @@ async def toggle_active(
     # Deactivate, never delete: their courses and attendance history are
     # referenced by grades already imported into D2L.
     target.is_active = not target.is_active
+    if not target.is_active:
+        # Same reasoning as a password reset: deactivating an account has to
+        # end its live sessions, not just block the next sign-in.
+        target.sessions_valid_from = dt.datetime.utcnow()
     await db.commit()
+    log.warning("Admin %s account %r",
+                "reactivated" if target.is_active else "deactivated", target.email)
     verb = "reactivated" if target.is_active else "deactivated"
     return RedirectResponse(f"/admin?saved={target.email}+{verb}", status_code=302)
 
@@ -254,7 +266,12 @@ async def reset_password(
                                 status_code=302)
 
     target.password_hash = hash_password(new_password)
+    # Revoke anything already issued. A reset that leaves the old 12-hour
+    # cookie working is not a reset: whoever you were locking out keeps their
+    # session until it expires on its own.
+    target.sessions_valid_from = dt.datetime.utcnow()
     await db.commit()
+    log.warning("Admin reset the password for %r", target.email)
     return RedirectResponse(f"/admin?saved=Password+reset+for+{target.email}",
                             status_code=302)
 

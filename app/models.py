@@ -84,6 +84,18 @@ class Instructor(Base):
     # them. Inactive accounts cannot sign in.
     is_active: Mapped[bool] = mapped_column(Boolean, default=True,
                                             server_default="1", nullable=False)
+    # The stable D2L user id, so an LTI launch identifies a person by
+    # something that does not change, rather than by a mutable email address.
+    d2l_user_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    # True only for accounts an LTI launch created. A launch will never take
+    # over a password account, so the shared consumer secret cannot be used to
+    # sign in as someone who has a real password.
+    lti_provisioned: Mapped[bool] = mapped_column(Boolean, default=False,
+                                                  server_default="0", nullable=False)
+    # Sessions issued before this moment are refused. Set on a password
+    # reset or a deactivation, so revoking access actually revokes it
+    # instead of leaving a valid 12-hour cookie in the wild.
+    sessions_valid_from: Mapped[Optional[dt.datetime]] = mapped_column(DateTime)
 
     enrollments: Mapped[List["CourseEnrollment"]] = relationship(
         back_populates="instructor",
@@ -158,6 +170,12 @@ class AttendanceRecord(Base):
     student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), nullable=False)
     checked_in_at: Mapped[dt.datetime] = mapped_column(DateTime, default=func.now())
     token_used: Mapped[Optional[str]] = mapped_column(String(500))
+    # Raw coordinates are deliberately NOT written here. SECURITY.md and the
+    # README both promise that only the distance and an in/out flag are kept,
+    # and the code did not honour that: it stored the student's latitude and
+    # longitude on every geofenced check-in. The columns remain so existing
+    # databases still load, but nothing writes them and the migration clears
+    # whatever was captured before.
     gps_lat: Mapped[Optional[float]] = mapped_column(Float)
     gps_lon: Mapped[Optional[float]] = mapped_column(Float)
     gps_distance_m: Mapped[Optional[float]] = mapped_column(Float)
@@ -178,3 +196,23 @@ class LtiLaunch(Base):
     role: Mapped[Optional[str]] = mapped_column(String(50))
     launched_at: Mapped[dt.datetime] = mapped_column(DateTime, default=func.now())
     session_data: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class LtiNonce(Base):
+    """One row per accepted LTI launch nonce, kept only for the replay window.
+
+    OAuth 1.0a is only replay-resistant if the verifier remembers nonces.
+    Without this table a captured launch body could be posted again inside the
+    five-minute timestamp window and would mint a fresh 12-hour session as
+    that user. Rows older than the window are deleted on each launch, so the
+    table stays small.
+    """
+
+    __tablename__ = "lti_nonces"
+    __table_args__ = (UniqueConstraint("consumer_key", "nonce", name="uq_lti_nonce"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    consumer_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    nonce: Mapped[str] = mapped_column(String(200), nullable=False)
+    seen_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow,
+                                                 index=True)

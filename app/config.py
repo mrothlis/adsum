@@ -32,6 +32,13 @@ class Settings:
     PORT: int = 8000
     # Safe by default: DEBUG leaks tracebacks to users.
     DEBUG: bool = False
+    # Comma-separated addresses allowed to set X-Forwarded-For on this app's
+    # behalf, e.g. "127.0.0.1" when a reverse proxy or tunnel runs on the same
+    # host. Empty means trust nobody, which is correct when the app is
+    # reached directly. Trusting the header unconditionally made the login
+    # throttle both bypassable and usable to lock a user out, so this has no
+    # permissive default.
+    TRUSTED_PROXY_IPS: str = os.getenv("TRUSTED_PROXY_IPS", "")
     # A token is valid for its own rotation slot plus the previous one, so the
     # effective lifetime is between one and two times this value. There is no
     # separate expiry setting: a second knob that silently disagreed with the

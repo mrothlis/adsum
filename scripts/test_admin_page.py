@@ -102,7 +102,10 @@ def main() -> int:
         check(f"section present: {probe}", probe in page)
     check("page states attendance is not visible here",
           "Attendance is not visible here" in page)
-    check("nav offers the Admin link", '<a href="/admin">Admin</a>' in page)
+    # Matched on the href alone, not the whole tag: asserting exact markup
+    # made this fail the moment an accessibility attribute was added to the
+    # link, which is a change that should not break a security test.
+    check("nav offers the Admin link", 'href="/admin"' in page)
 
     print("\nAccount management works")
     password = "Zq" + secrets.token_urlsafe(20)
@@ -158,7 +161,7 @@ def main() -> int:
 
         rr = requests.get(f"{BASE_URL}/instructor/dashboard", cookies=plain, timeout=30)
         check("nav hides the Admin link from a plain instructor",
-              '<a href="/admin">Admin</a>' not in rr.text)
+              'href="/admin"' not in rr.text)
 
         row = con.execute("SELECT d2l_host FROM institutions "
                           "ORDER BY id LIMIT 1").fetchone()

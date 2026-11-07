@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import logging
 import time as _time
 from typing import Optional
 from urllib.parse import quote_plus
@@ -22,7 +23,13 @@ from app.auth import (
     set_session_cookie,
     verify_password,
 )
-from app.authz import is_admin, owned_course, owned_session
+from app.authz import (
+    active_instructor,
+    enrolled_student,
+    is_admin,
+    owned_course,
+    owned_session,
+)
 from app.config import settings
 from app.database import get_db
 from app.main import _to_local, templates
@@ -45,6 +52,7 @@ from app.scoring import (
     score,
 )
 
+log = logging.getLogger("adsum.instructor")
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
 
@@ -59,17 +67,59 @@ def require_instructor(request: Request) -> dict:
 
 # ─── Login / Logout ────────────────────────────────────────
 
-# Simple brute-force throttle: 5 failed attempts per IP -> 10-minute lockout.
-LOGIN_MAX_FAILS = 5
+# Brute-force throttle, keyed on BOTH the submitted email and the peer
+# address, with different thresholds, because the two threats are different.
+#
+# Per account: a targeted attack guesses one person's password, so five
+# failures against one email is already suspicious and locks that account.
+#
+# Per address: a broad attack sprays many accounts from one place. The
+# threshold here is deliberately much higher, because a whole lecture theatre
+# can share one campus NAT address and a handful of mistyped passwords must
+# not lock the building out. An IP-only counter with a low threshold was
+# itself the denial of service.
+LOGIN_MAX_FAILS_PER_ACCOUNT = 5
+LOGIN_MAX_FAILS_PER_IP = 25
 LOGIN_LOCKOUT_SECONDS = 600
-_login_fails: dict = {}  # ip -> [fail_count, lockout_until_epoch]
+# Bounded so a hostile caller cannot grow it without limit.
+LOGIN_FAILS_MAX_KEYS = 4096
+_login_fails: dict = {}  # key -> [fail_count, lockout_until_epoch]
 
 
 def _client_ip(request: Request) -> str:
+    """The client address, trusting X-Forwarded-For only from a known proxy.
+
+    Reading the first element of X-Forwarded-For unconditionally was a hole,
+    not a convenience: the header is client-supplied, and the reverse-proxy
+    configuration this project documents APPENDS to it, so the leftmost entry
+    is attacker-controlled even behind a correct proxy. The throttle was
+    therefore bypassable by incrementing a header, and usable to lock any
+    instructor out by replaying their address.
+
+    TRUSTED_PROXY_IPS lists the addresses allowed to speak for someone else.
+    Empty (the default) means trust nobody and use the peer address.
+    """
+    peer = request.client.host if request.client else "?"
+    trusted = {h.strip() for h in settings.TRUSTED_PROXY_IPS.split(",") if h.strip()}
+    if peer not in trusted:
+        return peer
     fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "?"
+    if not fwd:
+        return peer
+    # Rightmost entry that is not itself a trusted proxy: entries to the left
+    # of that were supplied by the client and cannot be believed.
+    for hop in reversed([h.strip() for h in fwd.split(",") if h.strip()]):
+        if hop not in trusted:
+            return hop
+    return peer
+
+
+def _throttle_keys(request: Request, email: str) -> list[tuple[str, int]]:
+    """The counters a failed login increments, each with its own threshold."""
+    return [
+        (f"user:{(email or '').strip().lower()}", LOGIN_MAX_FAILS_PER_ACCOUNT),
+        (f"ip:{_client_ip(request)}", LOGIN_MAX_FAILS_PER_IP),
+    ]
 
 
 @router.post("/login")
@@ -79,14 +129,17 @@ async def login(
     password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
-    ip = _client_ip(request)
     now = _time.time()
-    state = _login_fails.get(ip)
-    if state and state[1] > now:
-        return HTMLResponse(
-            "<h2>Too many login attempts</h2><p>Please try again in 10 minutes.</p>",
-            status_code=429,
-        )
+    keys = _throttle_keys(request, email)
+    for key, _limit in keys:
+        state = _login_fails.get(key)
+        if state and state[1] > now:
+            log.warning("Login refused: throttled (%s)", key.split(":", 1)[0])
+            return HTMLResponse(
+                "<h2>Too many login attempts</h2><p>Please try again in 10 "
+                "minutes.</p>",
+                status_code=429,
+            )
 
     stmt = select(Instructor).where(Instructor.email == email)
     result = await db.execute(stmt)
@@ -96,7 +149,8 @@ async def login(
         # account exists to someone who cannot use it.
         instructor = None
     if instructor and verify_password(password, instructor.password_hash):
-        _login_fails.pop(ip, None)
+        for key, _limit in keys:
+            _login_fails.pop(key, None)
         resp = RedirectResponse("/instructor/dashboard", status_code=302)
         set_session_cookie(resp, {
             "role": "instructor",
@@ -111,18 +165,31 @@ async def login(
         })
         return resp
 
-    state = _login_fails.get(ip) or [0, 0.0]
-    state[0] += 1
-    if state[0] >= LOGIN_MAX_FAILS:
-        state = [0, now + LOGIN_LOCKOUT_SECONDS]
-    _login_fails[ip] = state
+    # Drop the whole table rather than let it grow without bound; losing
+    # counters costs an attacker a restart's worth of attempts at most.
+    if len(_login_fails) > LOGIN_FAILS_MAX_KEYS:
+        _login_fails.clear()
+    for key, limit in keys:
+        state = _login_fails.get(key) or [0, 0.0]
+        state[0] += 1
+        if state[0] >= limit:
+            state = [0, now + LOGIN_LOCKOUT_SECONDS]
+        _login_fails[key] = state
+    log.warning("Login failed for %r", email)
     return templates.TemplateResponse(request, "login.html", {
         "error": "Invalid email or password.",
     }, status_code=401)
 
 
+@router.post("/logout")
 @router.get("/logout")
 async def logout():
+    """Clear the session cookie.
+
+    delete_cookie must mirror the attributes set_session_cookie used, or the
+    browser keeps the original and logging out appears to work while the
+    session stays live.
+    """
     resp = RedirectResponse("/", status_code=302)
     clear_session_cookie(resp)
     return resp
@@ -135,6 +202,15 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
+
+    # The dashboard is the only instructor page that does not go through
+    # owned_course, so it needs the revocation check explicitly. Without it a
+    # deactivated account, or one whose password had just been reset, still
+    # landed here with a working page.
+    if not await active_instructor(db, user):
+        resp = RedirectResponse("/", status_code=302)
+        clear_session_cookie(resp)
+        return resp
 
     instructor_id = user["instructor_id"]
 
@@ -389,6 +465,16 @@ async def mark_present(
     if status not in ("present", "late", "excused"):
         status = "present"
 
+    # Owning the session is not enough: student_id arrives from a form, so it
+    # must be proved to be on THIS course's roster. Without this an
+    # instructor could post arbitrary ids into their own session and read
+    # other professors' students back out of the attendance API.
+    if not await enrolled_student(db, course.id, student_id):
+        log.warning("mark-present refused: student %s not on course %s roster",
+                    student_id, course.id)
+        return HTMLResponse("That student is not on this course's roster.",
+                            status_code=404)
+
     # Deliberately allowed on an ENDED session: students routinely sort out a
     # missed check-in after class, and the roll would otherwise be frozen wrong.
     existing = (await db.execute(select(AttendanceRecord).where(
@@ -425,6 +511,11 @@ async def unmark_attendance(request: Request, session_id: int,
     session, course = await owned_session(db, user, session_id)
     if not session:
         return HTMLResponse("Not found", status_code=404)
+    if not await enrolled_student(db, course.id, student_id):
+        log.warning("unmark refused: student %s not on course %s roster",
+                    student_id, course.id)
+        return HTMLResponse("That student is not on this course's roster.",
+                            status_code=404)
     await db.execute(delete(AttendanceRecord).where(and_(
         AttendanceRecord.session_id == session_id,
         AttendanceRecord.student_id == student_id)))
@@ -449,6 +540,11 @@ async def mark_excused(request: Request, session_id: int,
     session, course = await owned_session(db, user, session_id)
     if not session:
         return HTMLResponse("Not found", status_code=404)
+    if not await enrolled_student(db, course.id, student_id):
+        log.warning("%s refused: student %s not on course %s roster",
+                    "mark-excused", student_id, course.id)
+        return HTMLResponse("That student is not on this course's roster.",
+                            status_code=404)
     existing = (await db.execute(select(AttendanceRecord).where(
         AttendanceRecord.session_id == session_id,
         AttendanceRecord.student_id == student_id,

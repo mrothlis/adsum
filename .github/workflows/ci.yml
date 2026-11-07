@@ -103,3 +103,6 @@ jobs:
 
       - name: Admin page boundary
         run: python scripts/test_admin_page.py
+
+      - name: Security regressions
+        run: python scripts/test_security.py
