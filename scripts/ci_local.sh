@@ -78,11 +78,17 @@ echo "Server up"
 echo
 
 FAILED=""
-# Keep this list identical to the integration job's steps in
-# .github/workflows/ci.yml. It drifted once already: the security and
-# robustness suites were added to CI and not here, so this script reported
-# "ALL CI INTEGRATION TESTS PASS LOCALLY" while skipping two of the six.
-for script in smoke_test test_isolation test_admin_separation test_admin_page \
+# Keep this list identical to the test steps in .github/workflows/ci.yml. It
+# has drifted twice: first the security and robustness suites were added to
+# CI and not here, so this script reported "ALL CI INTEGRATION TESTS PASS
+# LOCALLY" while skipping two of six; then test_scoring and test_migrations
+# were missed the same way. A script whose whole purpose is to reproduce CI
+# has to fail when it no longer does.
+#
+# test_scoring and test_migrations need no server. They are run here anyway
+# so this one command covers every suite CI runs, wherever CI runs it.
+for script in test_scoring test_migrations \
+              smoke_test test_isolation test_admin_separation test_admin_page \
               test_security test_robustness test_roster_sync test_standalone; do
   printf '%-26s ' "$script"
   if OUT="$("$PY" "scripts/${script}.py" 2>&1)"; then

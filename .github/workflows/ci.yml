@@ -75,6 +75,19 @@ jobs:
             exit 1
           fi
 
+      # The app applies its own pending migrations at startup, backing up
+      # first. Covers the empty, current, unversioned, behind-head and
+      # failing paths -- including that a failing migration does NOT take a
+      # fresh backup on every restart, which would prune every good backup
+      # within minutes of the launcher's retry loop.
+      - name: Startup migrations back up, apply, and refuse safely
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///./ci-startup.db
+          SECRET_KEY: ci-startup-migration-check-key-0123456789
+          ADMIN_EMAIL: ci@example.edu
+          ADMIN_PASSWORD: CiStartupMigrationCheck123!
+        run: python scripts/test_migrations.py
+
   lint:
     runs-on: ubuntu-latest
     steps:

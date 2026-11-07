@@ -47,7 +47,14 @@ def database_path() -> str:
     return os.path.normpath(path)
 
 
-def main() -> None:
+def backup_now() -> str:
+    """Take a backup and return its path. Importable by the app at startup.
+
+    Separate from main() so the app can back up before migrating without
+    shelling out, while this file stays importable with nothing but the
+    standard library -- it must keep working as a bare cron/Task Scheduler
+    script on an install that has no virtualenv activated.
+    """
     src_path = database_path()
     if not os.path.exists(src_path):
         raise SystemExit(f"No database at {src_path}. Start the app once to create it.")
@@ -71,7 +78,14 @@ def main() -> None:
     backups = sorted(glob.glob(os.path.join(DEST_DIR, f"{stem}-*.db")))
     for old in backups[:-KEEP]:
         os.remove(old)
-    print(f"backed up to {dest} ({len(backups[-KEEP:])} kept)")
+    return dest
+
+
+def main() -> None:
+    dest = backup_now()
+    stem = os.path.splitext(os.path.basename(database_path()))[0]
+    kept = sorted(glob.glob(os.path.join(DEST_DIR, f"{stem}-*.db")))
+    print(f"backed up to {dest} ({len(kept)} kept)")
 
 
 if __name__ == "__main__":

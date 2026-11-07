@@ -631,21 +631,49 @@ file would otherwise overwrite the record D2L is holding.
 ```bash
 git pull
 pip install -r requirements.txt
-alembic upgrade head                # apply any schema changes
+# restart the app -- it migrates itself
 ```
 
 On Windows, in the project directory with the virtualenv active, the same
-three commands work.
+commands work.
 
-Take a backup first. `alembic upgrade head` is safe to run when there is
-nothing to do.
+**The schema is brought up to date at startup, and a backup is taken first.**
+You do not need to run `alembic upgrade head` by hand. This is deliberate:
+forgetting it meant the app started happily against the old schema and then
+threw 500s on whichever page touched a column that was never added — possibly
+days later, in front of a class.
 
-> **Do not run `alembic upgrade head` on a brand-new install.** It crashes
-> with `NoSuchTableError: courses`. The baseline revision creates no tables:
-> the schema is built by SQLAlchemy's `create_all` in `app/database.py` the
-> first time the app starts, and the app then stamps the database at the
-> current migration head. So the correct order on a fresh install is **start
-> the app once**, and migrations only come into it on later upgrades.
+What startup does, in order:
+
+| Database state | What happens | Backup taken? |
+|---|---|---|
+| Empty | Schema built and stamped at head | No — nothing to lose |
+| Already at head | Nothing | No |
+| Tables but no migration version | Stamped at head, history *not* replayed | No |
+| Behind head | **Backed up**, then migrated | Yes, before any change |
+| Migration fails | Refuses to start, records the failure | Yes, once only |
+
+Two behaviours worth knowing:
+
+- **A failed migration stops the app rather than degrading it.** Serving on a
+  schema that could not be brought up to date fails in scattered, confusing
+  ways; refusing to start fails in one obvious way, and your data is as it was.
+  Fix the cause, delete the `.migration-failed` file, and start again.
+- **A failed migration is not retried, and takes no further backups.** The
+  launcher restarts the app every 10 seconds indefinitely, so a naive
+  back-up-then-migrate would take a fresh backup on every attempt and, with
+  `BACKUP_KEEP` at 14, would delete every good backup within a couple of
+  minutes — destroying the one thing the backup exists to protect.
+
+Set `AUTO_MIGRATE=false` in `.env` if your deployment runs migrations as its
+own step. Automatic migration is SQLite-only, because the backup uses SQLite's
+online backup API; on any other engine, run the migration in your deploy
+pipeline and use that engine's backup tool.
+
+> **Never run `alembic upgrade head` on a brand-new install by hand.** It
+> crashes with `NoSuchTableError: courses`. The baseline revision creates no
+> tables: the schema is built by SQLAlchemy's `create_all` and then stamped at
+> the current head. Starting the app does the right thing in every case.
 
 ---
 
@@ -657,13 +685,20 @@ Install the development dependencies first, otherwise `ruff` is not present:
 pip install -r requirements-dev.txt
 ```
 
-There are nine scripts. **Two need no server:**
+There are ten scripts. **Three need no server:**
 
 ```bash
 python scripts/test_scoring.py           # the grade arithmetic
+python scripts/test_migrations.py        # startup backs up, migrates, or refuses
 python scripts/verify_install.py         # clean-install check
 ruff check app scripts run.py backup_db.py alembic/env.py
 ```
+
+`test_migrations.py` exercises every path through startup migration against
+throwaway databases: empty, already current, tables with no version, genuinely
+behind head, and a migration that fails. It asserts a backup is taken *before*
+any schema change, that the backup holds the pre-migration state, and that a
+failed migration is not retried and takes no further backups.
 
 `verify_install.py` exports the committed tree with `git archive`, configures
 it from `.env.example` alone, and starts it, which is also what CI does on

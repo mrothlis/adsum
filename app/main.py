@@ -178,6 +178,12 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 
 @app.on_event("startup")
 async def startup() -> None:
+    # Before init_db: create_all() only adds MISSING TABLES, so it silently
+    # does nothing about a migration that adds a column to an existing one --
+    # which is most of them. Migrating first also stops create_all racing a
+    # migration that creates a table.
+    from app.migrate import apply_pending
+    apply_pending()
     await init_db()
     from app.seed import ensure_admin, seed_demo_data
     if settings.SEED_DEMO:

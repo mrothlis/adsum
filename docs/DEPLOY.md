@@ -300,16 +300,22 @@ only one copy to keep correct.
 
 ```powershell
 cd C:\Apps\adsum
-# Stop the adsum task first, and take a backup.
+# Stop the adsum task first.
 git pull
 .\.venv\Scripts\pip.exe install -r requirements.txt
-.\.venv\Scripts\python.exe -m alembic upgrade head
-# Start the adsum task.
+# Start the adsum task. It backs up and migrates itself on startup.
 ```
 
-`alembic upgrade head` is safe to run when there is nothing to do, on a
-database that already has tables. It is not safe on an empty one: see section
-3.3.
+**The app applies pending migrations when it starts, taking a backup first**,
+so there is no manual `alembic upgrade head` step and no way to forget it. If
+a migration fails the app refuses to start rather than serving an out-of-date
+schema, writes `.migration-failed`, and does not retry — important here,
+because `start.ps1` restarts uvicorn every 10 seconds forever, and retrying a
+failing migration would take a fresh backup each time and prune every good one
+within minutes. Check `server.log`, fix the cause, delete
+`.migration-failed`, restart.
+
+Set `AUTO_MIGRATE=false` in `.env` to manage migrations yourself instead.
 
 After a model change, in development:
 

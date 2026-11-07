@@ -28,6 +28,12 @@ class Settings:
     ADMIN_PASSWORD: str = ""
     ADMIN_EMAIL: str = "admin@example.edu"
     SEED_DEMO: bool = False
+
+    # Apply pending migrations at startup, backing up first. On by default
+    # because the alternative is an app that silently serves an out-of-date
+    # schema after an update. Turn it off where a deploy pipeline runs
+    # migrations as its own step.
+    AUTO_MIGRATE: bool = True
     # Loopback by default. 0.0.0.0 used to be the default, which meant the
     # "local try-out" in the README was reachable from the whole network over
     # plain HTTP before anyone had set a password they cared about. A real
