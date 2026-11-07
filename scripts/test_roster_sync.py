@@ -503,6 +503,63 @@ def run_checks(admin, course_id: int, student_ids: list[int]) -> int:  # noqa: P
           "added the course since your last import" in body
           and "should not be in this" in body)
 
+    print("\nA REAL D2L export keyed on Username (no OrgDefinedId, no Email)")
+    # The exact shape of a file from Grades -> Export with Key Field =
+    # Username: identifiers carry D2L's "#" marker and there is no
+    # OrgDefinedId or Email column at all. Every synthetic fixture above has
+    # an ID column, so this format was silently rejected until a real export
+    # was tried against a live course.
+    #
+    # List everyone currently active, so a correct import drops nobody --
+    # otherwise the wrong-file guard fires and the 409 tells us nothing about
+    # whether the format was understood.
+    before = roster_state(course_id)
+    active = sorted(k for k, dropped in before.items() if dropped is None)
+    con = db()
+    rows = {r[0]: (r[1], r[2]) for r in con.execute(
+        "SELECT s.student_id_number, s.name, s.d2l_username FROM "
+        "course_enrollments e JOIN students s ON s.id = e.student_id "
+        "WHERE e.course_id=? AND e.dropped_at IS NULL", (course_id,))}
+    con.close()
+    lines = ["Username,Last Name,First Name,End-of-Line Indicator"]
+    for num in active:
+        name, user = rows[num]
+        parts = name.split()
+        first, last = parts[0], (parts[-1] if len(parts) > 1 else "Surname")
+        # Keyed on username, with D2L's marker, exactly as D2L writes it.
+        lines.append(f"#{user or num},{last},{first},#")
+    real = "\n".join(lines) + "\n"
+
+    r = post_classlist(admin, course_id, real)
+    check("a username-keyed export is accepted", r.status_code == 302,
+          f"{r.status_code} (302 is the success redirect; 409 is the "
+          f"wrong-file guard, 400 a parse refusal)")
+    after = roster_state(course_id)
+    check("it matched the existing students instead of duplicating them",
+          len(after) == len(before), f"{len(before)} -> {len(after)}")
+    check("and nobody was marked dropped by it",
+          sum(1 for v in after.values() if v is not None)
+          == sum(1 for v in before.values() if v is not None))
+    con = db()
+    stored = [row[0] for row in con.execute(
+        "SELECT s.d2l_username FROM students s JOIN course_enrollments e "
+        "ON e.student_id = s.id WHERE e.course_id = ? AND s.d2l_username "
+        "IS NOT NULL", (course_id,))]
+    con.close()
+    check("the '#' marker is stripped from the stored username",
+          all(not u.startswith("#") for u in stored), repr(stored[:4]))
+
+    print("\nAn export with the name boxes left unticked is refused clearly")
+    nameless = ("Username,End-of-Line Indicator\n"
+                f"#{uname(1)},#\n#{uname(2)},#\n")
+    r = post_classlist(admin, course_id, nameless)
+    body = r.text
+    check("it does not silently create nameless students",
+          "Could not find First Name" in body or r.status_code >= 400,
+          str(r.status_code))
+    check("and it says where to tick the boxes",
+          "Grades" in body and "First Name" in body)
+
     print("-" * 52)
     if failures:
         print(f"{len(failures)} FAILED: {failures}")

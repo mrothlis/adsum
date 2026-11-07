@@ -764,6 +764,19 @@ def run_checks(admin, created: list[int]) -> int:  # noqa: PLR0915
             "(SELECT id FROM sessions)").fetchone()[0]
         check("no attendance left orphaned by the delete", orphans == 0,
               str(orphans))
+        # Students the deleted course was the last to hold must go with it.
+        # Otherwise every deleted course leaves an invisible pile of names
+        # behind, and for a standalone course that was the only copy.
+        #
+        # NOT EXISTS, never NOT IN: instructor enrollments carry a NULL
+        # student_id, which makes NOT IN match nothing and this assertion
+        # pass no matter how many rows were stranded.
+        stranded = db().execute(
+            "SELECT COUNT(*) FROM students s WHERE NOT EXISTS "
+            "(SELECT 1 FROM course_enrollments e WHERE e.student_id = s.id)"
+        ).fetchone()[0]
+        check("no students stranded with no course at all", stranded == 0,
+              f"{stranded} orphaned student row(s)")
 
     print("-" * 52)
     if failures:

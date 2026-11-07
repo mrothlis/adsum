@@ -392,7 +392,7 @@ course and the person launching it and no roster at all, and the Valence
 by a Brightspace *administrator* — the IT ticket this project exists to avoid.
 Do not promise users a roster that syncs itself.
 
-So the instructor exports the Classlist from D2L and imports it on the course
+So the instructor exports the classlist from D2L and imports it on the course
 page, and that import is a reconciliation: students on the file are added,
 students missing from it are **marked dropped rather than deleted** (their
 attendance is real history, and the D2L gradebook may still refer to them),
@@ -400,6 +400,33 @@ someone who reappears in a later file is put back, and changed names,
 usernames and D2L IDs are reported. A dropped student is excluded from the
 gradebook export and from every attendance count, and shown separately on the
 course page with the date and the attendance they had.
+
+#### Where the classlist file actually comes from
+
+Not where you would guess, so tell your instructors precisely this:
+
+> **Grades → Export**, set **Key Field** to Username or Org Defined ID, tick
+> **Last Name** and **First Name** under *User Details*, then **Export to CSV**.
+
+Three things make the obvious guess wrong, all confirmed against a live
+Brightspace course:
+
+- **The Classlist tool has no export.** It can email the class and print, but
+  there is no CSV anywhere in it. The only export is in Grades.
+- **The two name checkboxes are off by default.** An export done without
+  noticing them contains identifiers and no names at all. Adsum refuses such a
+  file and says which boxes to tick, rather than creating a roster of blanks.
+- **D2L prefixes the key field's values with `#`** (`#jsmith`), and which
+  column is the key field is chosen at export time. Adsum strips it from every
+  identifier column. This matters more than it looks: stored verbatim, a
+  username would match no existing student — creating a duplicate — and the
+  gradebook export would then emit a username D2L does not recognise, so the
+  grade would silently land nowhere.
+
+Any of OrgDefinedId, Username or Email is enough to identify a student, and
+Adsum matches on all three (plus its own stored ID), case-insensitively,
+because a real export keyed on Username has no OrgDefinedId or Email column
+at all.
 
 An import that would drop more than half the active roster, or that shares no
 students with a non-empty roster, is **refused outright and changes nothing**

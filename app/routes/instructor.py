@@ -112,6 +112,88 @@ ROSTER_SUMMARY_NAMES_SHOWN = 8
 # JS dialog.
 ROSTER_DROP_CONFIRM = "drop"
 
+# Where a classlist CSV actually comes from. Worth stating in one
+# place because the obvious guess is wrong: D2L's Classlist tool has
+# no export, and the two name checkboxes under Grades -> Export are
+# OFF by default, so the natural first attempt produces a file with
+# no names in it.
+D2L_EXPORT_HELP = (
+    'In D2L go to Grades \u2192 Export, set Key Field to Username or Org Defined ID, tick "Last Name" and "First Name" under User Details, then Export to CSV.'
+)
+
+
+def _strip_d2l_key(value: str) -> str:
+    """Clean one identifier cell from a D2L export.
+
+    D2L prefixes the key field's values with "#" in the files it produces,
+    and which column is the key field is a choice made at export time, so any
+    of OrgDefinedId, Username or Email can arrive marked. Strip it everywhere
+    rather than guessing.
+    """
+    return (value or "").strip().lstrip("#").strip()
+
+
+def _roster_identity_number(rec: dict) -> str:
+    """The value that would go in students.student_id_number for this row.
+
+    One definition, used both when matching and when creating, so the lookup
+    that prevents a UNIQUE collision cannot drift from the value that would
+    cause one.
+    """
+    return (rec["org_id"] or rec["username"]
+            or (rec["email"].split("@")[0] if rec["email"] else ""))
+
+
+async def _match_roster_student(db: AsyncSession, rec: dict):
+    """Find the existing student a classlist row refers to, or None.
+
+    Identifier precedence, most stable first. Username is in here because it
+    is the identifier D2L itself relies on: an LTI launch carries
+    ext_d2l_username and nothing else about identity, and a gradebook import
+    is matched on Username. A real export keyed on Username has no
+    OrgDefinedId and no Email column at all, so without the username lookups
+    such a file matches nobody and every student is created again as a
+    duplicate.
+
+    The student_id_number lookup at the end is the one that stops a 500.
+    That column is UNIQUE and is populated from whichever identifier was
+    available when the student was first seen, so a row that matched nothing
+    above can still collide with it on insert. Found exactly that way: a real
+    username-keyed export hit "UNIQUE constraint failed:
+    students.student_id_number". Matching is the right answer rather than
+    catching the error, because the colliding row IS this student.
+    """
+    def lower_eq(column, value):
+        return select(Student).where(
+            func.lower(column) == value.lower()).limit(1)
+
+    if rec["org_id"]:
+        student = (await db.execute(
+            select(Student).where(
+                Student.student_id_number == rec["org_id"]).limit(1)
+        )).scalars().first()
+        if student:
+            return student
+    if rec["username"]:
+        # Case-insensitive: D2L is not consistent about case between the
+        # launch parameter and its own exports.
+        student = (await db.execute(
+            lower_eq(Student.d2l_username, rec["username"]))).scalars().first()
+        if student:
+            return student
+    if rec["email"]:
+        student = (await db.execute(
+            lower_eq(Student.email, rec["email"]))).scalars().first()
+        if student:
+            return student
+    number = _roster_identity_number(rec)
+    if number:
+        student = (await db.execute(
+            lower_eq(Student.student_id_number, number))).scalars().first()
+        if student:
+            return student
+    return None
+
 
 def _roster_freshness(course: Course) -> dict:
     """Plain-language state of this course's last classlist import.
@@ -886,6 +968,30 @@ async def delete_course(request: Request, course_id: int,
     await db.execute(delete(Session).where(Session.course_id == course_id))
     await db.execute(delete(CourseEnrollment).where(
         CourseEnrollment.course_id == course_id))
+
+    # Students are shared between courses, so they are not the course's to
+    # delete -- except the ones this course was the last to hold. Those rows
+    # would otherwise survive forever, invisible, with nothing referring to
+    # them: a growing pile of names and ID numbers belonging to a course that
+    # no longer exists. For a standalone course that is the only copy of
+    # those names, which makes it a privacy question rather than a tidiness
+    # one. Run AFTER the enrollments are gone so "no remaining enrollment"
+    # is true rather than predicted.
+    #
+    # NOT EXISTS, never NOT IN. This table holds instructor enrollments as
+    # well as student ones, and those have student_id NULL by design, so
+    # "id NOT IN (SELECT student_id FROM course_enrollments)" is UNKNOWN for
+    # every row and matches nothing at all the moment any instructor is
+    # enrolled -- which is every real course. It fails by silently doing
+    # nothing, so it would not have shown up as an error.
+    orphans = (await db.execute(
+        select(Student.id).where(~select(CourseEnrollment.id).where(
+            CourseEnrollment.student_id == Student.id).exists())
+    )).scalars().all()
+    if orphans:
+        await db.execute(delete(DeviceBinding).where(
+            DeviceBinding.student_id.in_(orphans)))
+        await db.execute(delete(Student).where(Student.id.in_(orphans)))
     # Snapshot what the log and notice need BEFORE the delete: after the
     # commit the ORM object is expired, and touching an attribute then
     # triggers a lazy reload of a row that no longer exists.
@@ -1753,7 +1859,10 @@ async def import_d2l_roster(
     col_role = _match_column(headers, "role")
 
     if col_first is None and col_last is None:
-        return bad("Could not find First Name / Last Name columns in the CSV.")
+        return bad("Could not find First Name / Last Name columns in that "
+                   "file. D2L leaves those two boxes UNTICKED by default, so "
+                   "an export done without them has no names in it. "
+                   + D2L_EXPORT_HELP + " Nothing was changed.")
 
     # ── Phase 1: parse the whole file before touching anything ──
     #
@@ -1776,20 +1885,28 @@ async def import_d2l_roster(
         last_name = row[col_last].strip() if col_last is not None and col_last < len(row) else ""
         full_name = f"{first_name} {last_name}".strip()
 
-        org_id = row[col_orgid].strip().lstrip("#") if col_orgid is not None and col_orgid < len(row) else ""
-        username = row[col_username].strip() if col_username is not None and col_username < len(row) else ""
-        email = row[col_email].strip() if col_email is not None and col_email < len(row) else ""
+        # D2L marks the KEY FIELD's values with a leading "#" in its own
+        # exports, and which column is the key field is chosen at export
+        # time. Found with a real export from a live course: with Username as
+        # the key field every row read "#<username>", which would have been
+        # stored verbatim. That breaks two things at once -- it does not match
+        # the existing student, so the import creates a duplicate, and the
+        # gradebook export then emits a username D2L does not recognise, so
+        # the grade silently lands nowhere. Strip it from every identifier,
+        # not just the id column.
+        org_id = _strip_d2l_key(row[col_orgid]) if col_orgid is not None and col_orgid < len(row) else ""
+        username = _strip_d2l_key(row[col_username]) if col_username is not None and col_username < len(row) else ""
+        email = _strip_d2l_key(row[col_email]) if col_email is not None and col_email < len(row) else ""
 
-        if not org_id and not email:
-            continue  # can't identify student without at least one identifier
+        if not org_id and not username and not email:
+            continue  # nothing here can identify a student
 
         parsed.append({"name": full_name, "org_id": org_id,
                        "username": username, "email": email})
 
     if not parsed:
-        return bad("No student rows were found in that file. Export the "
-                   "Classlist from D2L (Classlist \u2192 Export) and upload "
-                   "that file. Nothing was changed.")
+        return bad("No student rows were found in that file. "
+                   + D2L_EXPORT_HELP + " Nothing was changed.")
 
     # ── Phase 2: work out what the file would do ──
     enrolled_rows = (await db.execute(
@@ -1803,14 +1920,8 @@ async def import_d2l_roster(
 
     named_ids: set[int] = set()
     for rec in parsed:
-        student = None
-        if rec["org_id"]:
-            student = (await db.execute(select(Student).where(
-                Student.student_id_number == rec["org_id"]))).scalar_one_or_none()
-        if not student and rec["email"]:
-            student = (await db.execute(select(Student).where(
-                Student.email == rec["email"]))).scalar_one_or_none()
-        rec["student"] = student
+        rec["student"] = await _match_roster_student(db, rec)
+        student = rec["student"]
         if student is not None and student.id in by_student_id:
             named_ids.add(student.id)
 
@@ -1905,8 +2016,7 @@ async def import_d2l_roster(
             student = Student(
                 name=rec["name"] or rec["username"] or rec["org_id"],
                 email=rec["email"] or None,
-                student_id_number=(rec["org_id"] or rec["username"]
-                                   or rec["email"].split("@")[0]),
+                student_id_number=_roster_identity_number(rec),
                 d2l_user_id=rec["org_id"] or None,
                 d2l_username=rec["username"] or None,
                 d2l_verified=True,

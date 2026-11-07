@@ -386,8 +386,15 @@ LTI 1.1 launch carries the course and the person launching it, and no roster
 at all; the Valence `enrollments` API that could return one needs an OAuth
 application registered by a Brightspace *administrator*, which is exactly the
 IT ticket this project exists to avoid. So the roster is reconciled at one
-moment only: when you export the Classlist from D2L and import it on the
+moment only: when you export the classlist from D2L and import it on the
 course page.
+
+**In D2L: Grades → Export**, set **Key Field** to Username or Org Defined ID,
+tick **Last Name** and **First Name** under *User Details*, then **Export to
+CSV**. Not the Classlist tool — it has no export at all, only email and print.
+The two name boxes are off by default, so an export done without ticking them
+has no names in it; Adsum refuses that file and tells you which boxes to tick
+rather than building a roster of blanks.
 
 What that import does:
 
