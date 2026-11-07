@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Enter your code — Adsum{% endblock %}
+
+{% block content %}
+{#  The fallback for a student whose camera will not focus.
+
+    The projected check-in URL carries a 64-character signature, so it is 133
+    characters long -- nobody types that on a phone, which made the old
+    "camera not working, open this address" line a dead end. They type the
+    bare domain to reach this page, then six characters off the screen.
+
+    Same rules as the rest of the student side: no third-party resources, and
+    never a technical reason. #}
+<div class="checkin-container">
+    <div class="card checkin-card">
+        <h1><span aria-hidden="true">⌨️</span> Enter your code</h1>
+
+        {% if error %}
+        <div class="alert alert-error alert-permanent" role="alert">
+            <span aria-hidden="true">❌</span> {{ error }}
+        </div>
+        {% endif %}
+
+        <p>Type the {{ code_length }}-character code shown on the screen in
+            class.</p>
+
+        <form method="post" action="/student/code" novalidate>
+            <div class="form-group">
+                <label for="code" class="sr-only">
+                    Your {{ code_length }}-character check-in code
+                </label>
+                <input type="text"
+                       id="code"
+                       name="code"
+                       class="code-input"
+                       maxlength="{{ code_length + 2 }}"
+                       autocomplete="off"
+                       autocapitalize="characters"
+                       autocorrect="off"
+                       spellcheck="false"
+                       inputmode="latin"
+                       aria-describedby="code-help"
+                       placeholder="{{ 'X' * code_length }}"
+                       required
+                       autofocus>
+            </div>
+            <p id="code-help" class="text-muted">
+                The code changes every few seconds, so use the one on the
+                screen right now. Letters and numbers only.
+            </p>
+            <button type="submit" class="btn btn-primary btn-block">
+                Check In
+            </button>
+        </form>
+
+        <p class="text-muted" style="margin-top:1.25rem;">
+            Scanning the QR code with your camera is quicker, if it will
+            focus. If neither works, tell your instructor before you leave.
+        </p>
+    </div>
+</div>
+
+<style>
+    /* Big, monospaced and widely spaced: this is read off a projector at the
+       back of a room and typed in a hurry. */
+    .code-input {
+        width: 100%;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 2rem;
+        letter-spacing: 0.35em;
+        text-align: center;
+        text-transform: uppercase;
+        padding: 0.6rem 0.4rem;
+    }
+    .code-input::placeholder {
+        letter-spacing: 0.35em;
+        opacity: 0.35;
+    }
+    .btn-block {
+        display: block;
+        width: 100%;
+        font-size: 1.1rem;
+        padding: 0.8rem;
+    }
+</style>
+{% endblock %}

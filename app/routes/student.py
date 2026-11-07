@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +25,7 @@ from app.models import (
     Session,
     Student,
 )
-from app.qr import verify_token
+from app.qr import CODE_LENGTH, generate_token, resolve_code, verify_token
 from app.scoring import policy_for
 
 log = logging.getLogger("adsum.student")
@@ -32,6 +33,96 @@ router = APIRouter(prefix="/student", tags=["student"])
 
 # Survives the round trip to D2L's login and back; holds only a session id.
 PENDING_SESSION_COOKIE = "adsum_pending_session"
+
+# Typing the code is a fallback, so a human pace is plenty. Without a limit
+# the six-character space would be worth grinding at; with it, it is not.
+#
+# Only FAILED attempts count, and a success clears the key. A student who
+# fat-fingers the code four times and then gets it right must not be held
+# back by their own earlier typos, and the window is deliberately short so a
+# mistyped code never turns into "come back in ten minutes" in front of a
+# class. It is long enough to make 32^6 hopeless, which is the only job it has.
+_CODE_FAILURES: dict[str, list[float]] = {}
+_CODE_MAX_FAILURES = 10
+_CODE_WINDOW_SECONDS = 30
+_CODE_FAILURES_MAX_KEYS = 4096
+
+
+def _code_attempts_exhausted(key: str) -> bool:
+    """Has this address already failed too many times recently?"""
+    now = time.time()
+    recent = [t for t in _CODE_FAILURES.get(key, [])
+              if now - t < _CODE_WINDOW_SECONDS]
+    if recent:
+        _CODE_FAILURES[key] = recent
+    else:
+        _CODE_FAILURES.pop(key, None)
+    return len(recent) >= _CODE_MAX_FAILURES
+
+
+def _record_code_failure(key: str) -> None:
+    if len(_CODE_FAILURES) > _CODE_FAILURES_MAX_KEYS:
+        _CODE_FAILURES.clear()
+    _CODE_FAILURES.setdefault(key, []).append(time.time())
+
+
+def _clear_code_failures(key: str) -> None:
+    _CODE_FAILURES.pop(key, None)
+
+
+# ─── Typed code fallback ──────────────────────────────────────
+#
+# For the student whose camera will not focus. The projected check-in URL
+# carries a 64-character HMAC, so it is 133 characters long and nobody can
+# reasonably type it -- which made the "camera not working" line a dead end.
+# They type a short code instead, and it resolves to exactly the same token
+# the QR would have given them, so every later step (enrolment, geofence,
+# duplicate handling, the two-scan first-time flow) is unchanged.
+
+
+@router.get("/code", response_class=HTMLResponse)
+async def code_page(request: Request, bad: str = Query("")):
+    """The page a student reaches by typing the bare domain."""
+    return templates.TemplateResponse(request, "student/code.html", {
+        "code_length": CODE_LENGTH,
+        "error": bad,
+    })
+
+
+@router.post("/code")
+async def submit_code(request: Request,
+                      code: str = Form(""),
+                      db: AsyncSession = Depends(get_db)):
+    """Turn a typed code into the normal token check-in."""
+    client = request.client.host if request.client else "unknown"
+    if _code_attempts_exhausted(client):
+        log.warning("code entry rate-limited for %s", client)
+        return templates.TemplateResponse(request, "student/code.html", {
+            "code_length": CODE_LENGTH,
+            "error": "Too many wrong tries. Wait half a minute, then try again.",
+        }, status_code=429)
+
+    # Only sessions that are open right now are candidates, which keeps the
+    # set tiny and means a code for a finished class resolves to nothing.
+    open_ids = list((await db.execute(
+        select(Session.id).where(Session.ended_at.is_(None))
+    )).scalars().all())
+
+    ok, session_id, reason = resolve_code(code, open_ids)
+    if not ok or session_id is None:
+        _record_code_failure(client)
+        log.info("code entry refused for %s: %s", client, reason)
+        return templates.TemplateResponse(request, "student/code.html", {
+            "code_length": CODE_LENGTH,
+            "error": reason,
+        }, status_code=400)
+
+    # Mint the token for the slot the code matched, then hand over to the
+    # normal path. Nothing about check-in is reimplemented here.
+    _clear_code_failures(client)
+    token, _slot = generate_token(session_id)
+    log.info("code entry accepted for session %s", session_id)
+    return RedirectResponse(f"/student/checkin?token={token}", status_code=303)
 
 
 # ─── Student check-in ─────────────────────────────────────────

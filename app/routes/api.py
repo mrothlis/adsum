@@ -17,7 +17,7 @@ from app.authz import owned_session
 from app.config import settings
 from app.database import async_session, get_db
 from app.models import AttendanceRecord, CourseEnrollment, Session
-from app.qr import generate_qr_base64, generate_token
+from app.qr import generate_code, generate_qr_base64, generate_token
 
 router = APIRouter(tags=["api"])
 
@@ -49,10 +49,20 @@ async def get_qr(request: Request, session_id: int, db: AsyncSession = Depends(g
     checkin_url = f"{base}/student/checkin?token={token}"
     qr_data_uri = generate_qr_base64(checkin_url)
 
+    # The typed fallback. checkin_url is 133 characters because of the
+    # signature, so it was never usable by a student whose camera would not
+    # focus; they get a short address to type and a six-character code
+    # instead. The code is derived from the same HMAC and the same slot, so
+    # it rotates and expires exactly as the QR does.
     return JSONResponse({
         "qr": qr_data_uri,
         "token": token,
         "url": checkin_url,
+        "code": generate_code(session_id, slot),
+        # The short alias, and without the scheme: a student types this off
+        # a projector, so it has to be as close to just the domain as
+        # possible. "/c" redirects to the real page.
+        "code_url": f"{base.split('://', 1)[-1]}/c",
         "slot": slot,
         "rotation_seconds": settings.QR_ROTATION_SECONDS,
     })

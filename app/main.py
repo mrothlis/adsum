@@ -219,6 +219,17 @@ app.include_router(api_router, prefix="/api")
 app.include_router(lti_router, prefix="/lti")
 
 
+@app.get("/c")
+async def short_code_entry():
+    """A deliberately tiny alias for the typed check-in fallback.
+
+    A student whose camera will not focus has to type this address off a
+    projector, so every character counts: "<host>/c" rather than
+    "<host>/student/code". The projected page shows this form.
+    """
+    return RedirectResponse("/student/code", status_code=307)
+
+
 @app.get("/")
 async def index(request: Request):
     from app.auth import get_current_user

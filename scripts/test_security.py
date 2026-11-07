@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import secrets
 import sqlite3
 import sys
+import time
 
 import requests
 
@@ -262,6 +264,97 @@ def main() -> int:
                       timeout=30, data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     check("and the admin was not locked out as a side effect",
           r.status_code == 302, str(r.status_code))
+
+    # ── The typed-code fallback is a second door into check-in ──────────
+    #
+    # It exists because the signed check-in URL is 133 characters and a
+    # student whose camera will not focus cannot type it. A shorter
+    # credential must not be a weaker one, so it has to expire with the QR
+    # and must not skip anything the token path enforces.
+    print("\nThe typed code is as strong as the QR it replaces")
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+    from app.qr import CODE_LENGTH, current_slot, generate_code
+
+    # Wait out any throttle a previous run of this file left behind. The
+    # guessing check below deliberately exhausts the limit, and on a back to
+    # back run that 429 was still in force and failed the two functional
+    # checks -- the same way an over-eager throttle test once locked the
+    # suite out of the login route.
+    #
+    # One probe, then one sleep. Polling would be worse than useless here:
+    # every probe is itself a failed attempt, so repeated probing keeps the
+    # window permanently topped up and the throttle never clears.
+    _CODE_WINDOW_SECONDS = 30  # keep in step with app/routes/student.py
+    probe = requests.post(f"{BASE_URL}/student/code", timeout=30,
+                          allow_redirects=False, data={"code": ""})
+    if probe.status_code == 429:
+        print(f"  (throttled from an earlier run; waiting "
+              f"{_CODE_WINDOW_SECONDS + 3}s)")
+        time.sleep(_CODE_WINDOW_SECONDS + 3)
+
+    r = requests.get(f"{BASE_URL}/c", allow_redirects=False, timeout=30)
+    check("the short /c address reaches the code page",
+          r.status_code in (302, 307)
+          and "/student/code" in r.headers.get("location", ""),
+          str(r.status_code))
+
+    sess = requests.Session()
+    sess.post(f"{BASE_URL}/instructor/login", timeout=30,
+              data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    rr = sess.post(f"{BASE_URL}/instructor/course/{course_id}/start-session",
+                   timeout=30, allow_redirects=True)
+    m = re.search(r"/instructor/session/(\d+)", rr.url)
+    probe_session = int(m.group(1)) if m else None
+    check("a session could be opened for the code checks",
+          probe_session is not None, rr.url)
+
+    if probe_session:
+        payload = sess.get(f"{BASE_URL}/api/qr/{probe_session}",
+                           timeout=30).json()
+        code = payload.get("code", "")
+        check(f"the API hands the projector a {CODE_LENGTH}-character code",
+              len(code) == CODE_LENGTH, repr(code))
+        check("the typed address is short enough to type off a screen",
+              len(payload.get("code_url", "")) + len(code) < 45,
+              f"{payload.get('code_url')} + {code}")
+        check("the 133-character URL is no longer what a student is shown",
+              'id="qr-code"' in sess.get(
+                  f"{BASE_URL}/instructor/session/{probe_session}",
+                  timeout=30).text)
+
+        # A code from two slots ago is dead, exactly like a stale token.
+        stale = generate_code(probe_session, current_slot() - 2)
+        r = requests.post(f"{BASE_URL}/student/code", timeout=30,
+                          allow_redirects=False, data={"code": stale})
+        check("a code older than the grace window is refused",
+              r.status_code == 400, str(r.status_code))
+
+        # The live code is accepted, but only as far as the real check-in
+        # page -- an anonymous browser must still be made to identify itself.
+        r = requests.post(f"{BASE_URL}/student/code", timeout=30,
+                          allow_redirects=False, data={"code": code})
+        loc = r.headers.get("location", "")
+        check("a live code hands off to the normal token check-in",
+              r.status_code in (302, 303) and "/student/checkin?token=" in loc,
+              f"{r.status_code} {loc[:40]}")
+        if loc.startswith("/"):
+            body = requests.get(BASE_URL + loc, timeout=30).text
+            check("and it does not check anyone in without an identity",
+                  "You are checked in" not in body
+                  and "checked in for" not in body)
+
+        # Grinding the six-character space must not be free.
+        statuses = [requests.post(f"{BASE_URL}/student/code", timeout=30,
+                                  allow_redirects=False,
+                                  data={"code": "ZZZZZZ"}).status_code
+                    for _ in range(14)]
+        check("guessing codes is rate-limited", 429 in statuses,
+              f"last: {statuses[-4:]}")
+
+        sess.post(f"{BASE_URL}/instructor/session/{probe_session}/stop",
+                  timeout=30)
+        sess.post(f"{BASE_URL}/instructor/session/{probe_session}/delete",
+                  timeout=30, data={"confirm": "delete"})
 
     print("-" * 52)
     if failures:
