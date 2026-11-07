@@ -78,7 +78,12 @@ echo "Server up"
 echo
 
 FAILED=""
-for script in smoke_test test_isolation test_admin_separation test_admin_page; do
+# Keep this list identical to the integration job's steps in
+# .github/workflows/ci.yml. It drifted once already: the security and
+# robustness suites were added to CI and not here, so this script reported
+# "ALL CI INTEGRATION TESTS PASS LOCALLY" while skipping two of the six.
+for script in smoke_test test_isolation test_admin_separation test_admin_page \
+              test_security test_robustness; do
   printf '%-26s ' "$script"
   if OUT="$("$PY" "scripts/${script}.py" 2>&1)"; then
     echo "PASS"
