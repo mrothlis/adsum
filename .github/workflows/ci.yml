@@ -141,3 +141,6 @@ jobs:
 
       - name: Security regressions
         run: python scripts/test_security.py
+
+      - name: Robustness regressions
+        run: python scripts/test_robustness.py

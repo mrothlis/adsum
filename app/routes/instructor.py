@@ -13,6 +13,7 @@ from urllib.parse import quote_plus
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import and_, delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -54,6 +55,31 @@ from app.scoring import (
 
 log = logging.getLogger("adsum.instructor")
 router = APIRouter(prefix="/instructor", tags=["instructor"])
+
+# Upload cap for the roster import. A classlist for even a huge lecture is a
+# few tens of kilobytes; anything near this is a mistake (a PowerPoint, a
+# photo) and reading it whole into memory first is the wrong thing to do.
+MAX_ROSTER_UPLOAD_BYTES = 2 * 1024 * 1024
+
+
+async def _open_session(db: AsyncSession, course_id: int):
+    """The course's open session, or None. Tolerant of duplicates by design.
+
+    There is now a partial unique index making two open sessions impossible,
+    but databases created before it may still hold some, and this query must
+    never be the thing that takes a page down. ``scalar_one_or_none()`` raised
+    MultipleResultsFound on exactly that data, which turned the instructor
+    dashboard into a permanent 500 for every instructor of the affected
+    course -- an instructor locked out of their own roll call by a stale row.
+    An ordered ``limit(1)`` degrades to "show the newest one" instead.
+    """
+    return (await db.execute(
+        select(Session)
+        .where(Session.course_id == course_id, Session.ended_at.is_(None))
+        .order_by(Session.started_at.desc(), Session.id.desc())
+        .limit(1)
+    )).scalars().first()
+
 
 
 # ─── Auth helpers ───────────────────────────────────────────
@@ -228,11 +254,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     # Active sessions
     active_sessions = {}
     for c in courses:
-        sess_stmt = select(Session).where(
-            Session.course_id == c.id,
-            Session.ended_at.is_(None),
-        )
-        sess = (await db.execute(sess_stmt)).scalar_one_or_none()
+        sess = await _open_session(db, c.id)
         if sess:
             count_stmt = select(func.count(AttendanceRecord.id)).where(
                 AttendanceRecord.session_id == sess.id
@@ -420,10 +442,12 @@ async def start_session(request: Request, course_id: int, db: AsyncSession = Dep
     if not await owned_course(db, user, course_id):
         return RedirectResponse("/instructor/dashboard", status_code=302)
 
-    # Check for existing active session
-    existing = (await db.execute(
-        select(Session).where(Session.course_id == course_id, Session.ended_at.is_(None))
-    )).scalar_one_or_none()
+    # The pre-insert check is a courtesy, not the guarantee: it is a SELECT
+    # followed by an INSERT, and a double-clicked button races straight past
+    # it. The guarantee is the partial unique index on
+    # sessions(course_id) WHERE ended_at IS NULL, so the loser of the race
+    # gets an IntegrityError and is sent to the session that actually exists.
+    existing = await _open_session(db, course_id)
     if existing:
         return RedirectResponse(f"/instructor/session/{existing.id}", status_code=302)
 
@@ -432,7 +456,22 @@ async def start_session(request: Request, course_id: int, db: AsyncSession = Dep
         started_by_instructor_id=user["instructor_id"],
     )
     db.add(session)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Somebody else opened one in the gap. That is the desired end state,
+        # not an error: one course, one open session. Join it rather than
+        # showing the instructor a 500 at the front of a classroom.
+        await db.rollback()
+        existing = await _open_session(db, course_id)
+        if existing:
+            log.info("start-session raced on course %s; joining open session %s",
+                     course_id, existing.id)
+            return RedirectResponse(f"/instructor/session/{existing.id}",
+                                    status_code=302)
+        log.warning("start-session on course %s failed and no open session exists",
+                    course_id)
+        return RedirectResponse(f"/instructor/course/{course_id}", status_code=302)
     await db.refresh(session)
     return RedirectResponse(f"/instructor/session/{session.id}", status_code=302)
 
@@ -450,6 +489,59 @@ async def stop_session(request: Request, session_id: int, db: AsyncSession = Dep
         session.ended_at = dt.datetime.utcnow()
         await db.commit()
     return RedirectResponse(f"/instructor/course/{session.course_id}", status_code=302)
+
+
+@router.post("/session/{session_id}/delete")
+async def delete_session(request: Request, session_id: int,
+                         db: AsyncSession = Depends(get_db),
+                         confirm: str = Form("")):
+    """Remove a session entirely, with its attendance records.
+
+    A session started in the hallway, on the wrong course, or twice could be
+    ended but never removed, and the exporter treats EVERY session row as a
+    class meeting. So a thirty-second stray session gave every student in the
+    course an absence and raised the denominator; with three absences
+    forgiven by default, a handful of strays quietly spends the allowance
+    that real absences were meant to use. The only previous remedy was
+    reset_course_data, which destroys the whole course's history.
+
+    Destructive and irreversible, so it needs an explicit confirmation field
+    rather than a bare POST -- the same reasoning behind the confirm dialog
+    on Reset Session Data, but enforced server-side, where a mis-sent request
+    cannot slip past it.
+    """
+    user = require_instructor(request)
+    if not user:
+        return RedirectResponse("/", status_code=302)
+    session, course = await owned_session(db, user, session_id)
+    if not session:
+        return HTMLResponse("Not found", status_code=404)
+
+    if confirm.strip().lower() != "delete":
+        log.warning("delete-session refused on session %s: missing confirmation",
+                    session_id)
+        return HTMLResponse(
+            "Deleting a session must be confirmed. Nothing was deleted.",
+            status_code=400)
+
+    course_id = session.course_id
+    started_at = session.started_at
+    removed = (await db.execute(select(func.count(AttendanceRecord.id)).where(
+        AttendanceRecord.session_id == session_id))).scalar() or 0
+    await db.execute(delete(AttendanceRecord).where(
+        AttendanceRecord.session_id == session_id))
+    await db.execute(delete(Session).where(Session.id == session_id))
+    await db.commit()
+    log.warning("session %s (course %s, started %s) deleted by instructor %s; "
+                "%s attendance record(s) removed",
+                session_id, course_id, started_at,
+                user.get("instructor_id"), removed)
+    when = started_at.strftime("%b %d") if started_at else "unknown date"
+    notice = (f"Session from {when} deleted, along with "
+              f"{removed} attendance record{'' if removed == 1 else 's'}.")
+    return RedirectResponse(
+        f"/instructor/course/{course_id}?notice={quote_plus(notice)}",
+        status_code=302)
 
 
 @router.post("/session/{session_id}/mark-present")
@@ -506,7 +598,16 @@ async def mark_present(
             session_id=session_id, student_id=student_id,
             token_used="manual", status=status,
         ))
-    await db.commit()
+    # Read-then-insert, so two clicks on the same button race past the
+    # existence check and the second hits uq_session_student. The instructor
+    # saw a 500 even though the student WAS recorded, which is exactly the
+    # confusion the student check-in path was already fixed for.
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        log.info("mark-present raced on session %s student %s; record already exists",
+                 session_id, student_id)
     return RedirectResponse(f"/instructor/session/{session_id}", status_code=302)
 
 
@@ -570,7 +671,14 @@ async def mark_excused(request: Request, session_id: int,
     else:
         db.add(AttendanceRecord(session_id=session_id, student_id=student_id,
                                 token_used="manual", status=EXCUSED_STATUS))
-    await db.commit()
+    # Same read-then-insert race as mark-present: treat the duplicate as
+    # success, because the record existing is the desired end state.
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        log.info("mark-excused raced on session %s student %s; record already exists",
+                 session_id, student_id)
     return RedirectResponse(f"/instructor/session/{session_id}", status_code=302)
 
 
@@ -1085,6 +1193,30 @@ def _match_column(headers: list[str], *candidates: str) -> int | None:
     return None
 
 
+def _decode_upload(raw: bytes) -> str:
+    """Decode an uploaded classlist without ever raising.
+
+    `raw.decode("utf-8-sig")` with no error handler returned HTTP 500 on a
+    file holding a single accented name (Jose Garcia with its real accents)
+    saved from Excel, which is cp1252 by default on Windows. Nothing was
+    imported, the instructor got a bare Internal Server Error with no
+    explanation, and the roster stayed empty -- which means every student in
+    that class cannot check in at all. The sibling restore-from-d2l endpoint
+    already decoded defensively.
+
+    Order matters: utf-8-sig first (correct, and strips the BOM), then cp1252
+    (what Excel on Windows produces), and finally utf-8 with replacement so
+    that even a PNG or an .xlsx yields a string. Garbage then falls out at
+    the header check as a friendly message instead of a traceback.
+    """
+    for encoding in ("utf-8-sig", "cp1252"):
+        try:
+            return raw.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 @router.post("/course/{course_id}/import-roster")
 async def import_d2l_roster(
     request: Request,
@@ -1101,9 +1233,32 @@ async def import_d2l_roster(
     if not course:
         return HTMLResponse("Course not found", status_code=404)
 
-    # Read and decode the uploaded CSV (handle BOM)
-    raw_bytes = await roster_file.read()
-    text = raw_bytes.decode("utf-8-sig")  # strips BOM automatically
+    def bad(message: str):
+        """The route's own friendly failure page, with full page context.
+
+        A classlist that cannot be read must say so on the course page, never
+        as an Internal Server Error: the instructor's next move is to re-save
+        the file, and a 500 does not tell them that.
+        """
+        log.warning("roster import rejected on course %s: %s", course_id, message)
+        _p = policy_for(course)
+        return templates.TemplateResponse(request, "instructor/course_detail.html", {
+            "user": user, "course": course, "sessions": [], "student_stats": [],
+            "import_result": {"error": message},
+            "allowed_absences": _p.allowed_unexcused, "policy": _p,
+        })
+
+    # Cap the upload. Reading one byte past the limit is enough to detect it
+    # without pulling an arbitrarily large file into memory.
+    raw_bytes = await roster_file.read(MAX_ROSTER_UPLOAD_BYTES + 1)
+    if len(raw_bytes) > MAX_ROSTER_UPLOAD_BYTES:
+        return bad(f"That file is larger than "
+                   f"{MAX_ROSTER_UPLOAD_BYTES // (1024 * 1024)} MB. "
+                   f"Upload the D2L Classlist CSV export.")
+    if not raw_bytes:
+        return bad("That file is empty.")
+
+    text = _decode_upload(raw_bytes)
 
     # Detect CSV dialect
     try:
@@ -1111,13 +1266,18 @@ async def import_d2l_roster(
     except csv.Error:
         dialect = csv.excel
 
-    reader = csv.reader(io.StringIO(text), dialect)
-    headers = next(reader, None)
+    # A non-CSV upload (a PNG, an .xlsx) survives decoding and then dies in
+    # the csv module instead -- embedded NULs and over-long fields both
+    # raise. Treat any of that as "this is not a classlist", not a 500.
+    reader = csv.reader(io.StringIO(text.replace("\x00", "")), dialect)
+    try:
+        headers = next(reader, None)
+        rows = list(reader)
+    except csv.Error as exc:
+        return bad(f"That file could not be read as a CSV ({exc}). "
+                   f"Upload the D2L Classlist CSV export.")
     if not headers:
-        return templates.TemplateResponse(request, "instructor/course_detail.html", {
-            "user": user, "course": course, "sessions": [], "student_stats": [],
-            "import_result": {"error": "CSV file is empty or has no header row."},
-        })
+        return bad("CSV file is empty or has no header row.")
 
     # Map columns flexibly
     col_first = _match_column(headers, "first name", "first")
@@ -1128,16 +1288,13 @@ async def import_d2l_roster(
     col_role = _match_column(headers, "role")
 
     if col_first is None and col_last is None:
-        return templates.TemplateResponse(request, "instructor/course_detail.html", {
-            "user": user, "course": course, "sessions": [], "student_stats": [],
-            "import_result": {"error": "Could not find First Name / Last Name columns in the CSV."},
-        })
+        return bad("Could not find First Name / Last Name columns in the CSV.")
 
     new_count = 0
     updated_count = 0
     enrolled_count = 0
 
-    for row in reader:
+    for row in rows:
         if not row or all(cell.strip() == "" for cell in row):
             continue
 

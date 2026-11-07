@@ -285,6 +285,7 @@
                     <th scope="col">Started</th>
                     <th scope="col">Ended</th>
                     <th scope="col">Status</th>
+                    <th scope="col">Remove</th>
                 </tr>
             </thead>
             <tbody>
@@ -300,10 +301,33 @@
                         <span class="badge badge-muted">Completed</span>
                         {% endif %}
                     </td>
+                    {# A session started by mistake -- in the hallway, on the
+                       wrong course, or twice -- counts as a class meeting to
+                       the exporter, so it hands every student an absence and
+                       quietly spends their forgiven-absence allowance. The
+                       only previous remedy was wiping the whole course. Only
+                       offered on a finished session: deleting the one that is
+                       running would pull the QR code off the projector
+                       mid-class. #}
+                    <td>
+                        {% if s.ended_at is none %}
+                        <span class="text-muted">End it first</span>
+                        {% else %}
+                        <form method="post"
+                              action="/instructor/session/{{ s.id }}/delete"
+                              onsubmit="return confirm('Delete the session from {{ s.started_at | localtime('%b %-d') }} and its attendance records?\n\nThis cannot be undone. Every student\'s total for this course will change.');">
+                            <input type="hidden" name="confirm" value="delete">
+                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                    aria-label="Delete the session from {{ s.started_at | localtime('%B %-d') }}">
+                                Delete
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="4">
+                    <td colspan="5">
                         No sessions yet. Start one from your dashboard when class begins.
                     </td>
                 </tr>

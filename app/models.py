@@ -10,11 +10,13 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -141,6 +143,30 @@ class CourseEnrollment(Base):
 
 class Session(Base):
     __tablename__ = "sessions"
+    __table_args__ = (
+        # A course can hold AT MOST ONE open session, enforced by the
+        # database rather than by a SELECT in the route.
+        #
+        # The route's guard was a SELECT followed by an INSERT with no lock,
+        # and four simultaneous POSTs (one impatient double-click is enough)
+        # produced four distinct open sessions. Everything downstream then
+        # broke at once: the dashboard 500s forever on scalar_one_or_none,
+        # the projector shows a QR for one session id while students holding
+        # an older code scan into another, and -- worst -- the export counts
+        # every session row as a class meeting, so one real class day becomes
+        # several and every student who checked into only one of them is
+        # exported ABSENT for the rest.
+        #
+        # SQLite supports partial indexes, so the constraint is expressible
+        # exactly: unique on course_id, but only over the open rows. Ended
+        # sessions are the normal history and must stay unconstrained.
+        Index(
+            "uq_sessions_one_open_per_course",
+            "course_id",
+            unique=True,
+            sqlite_where=text("ended_at IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), nullable=False)

@@ -6,6 +6,57 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — a present student could be recorded absent
+
+These were reproduced against a disposable copy before being fixed, and each
+is now pinned by `scripts/test_robustness.py`, which runs in CI.
+
+- **Two open sessions for one course.** Starting a session was a SELECT then an
+  INSERT with no lock and no constraint, so one double-click on Start Session
+  created duplicates: 16 simultaneous requests produced five open sessions.
+  After that the dashboard returned 500 for every instructor of that course,
+  and because the export counts each session row as a class meeting, one real
+  class day became several meetings and every student who checked into only one
+  of them exported as **absent** for the rest. The database now refuses a
+  second open session per course (a partial unique index), a collision
+  redirects to the session already running, and every query for a course's open
+  session tolerates duplicates so a database that already has them cannot wedge
+  a page. The migration closes any it finds rather than deleting them, so no
+  attendance is lost.
+- **A stray session could be ended but never removed**, and each one handed
+  every student an absence while quietly spending the forgiven-absence
+  allowance that real absences were meant to use. The only previous remedy
+  destroyed the whole course's history. Finished sessions can now be deleted
+  from the course page, with a server-enforced confirmation.
+- **A failed QR refresh permanently blanked the projected code** and told the
+  instructor "Session ended." while the session was still live, so nobody could
+  scan for the rest of class. Any 5xx or network error now keeps the code on
+  screen and retries with backoff; only a repeatedly confirmed 404/410 closes
+  it, and that case no longer borrows the word "ended".
+- **A roster import of a Windows-encoded classlist returned 500** and imported
+  nothing — any accented name saved by Excel, or an `.xlsx` picked by mistake.
+  The roster then stayed empty, which means nobody in that class could check in
+  at all. Uploads are now decoded defensively, size-capped, and explained
+  instead of crashing.
+- **Double-clicking Present or Excused returned 500** from an unhandled unique
+  violation, despite the record having been written.
+
+### Fixed — privacy
+
+- **The projected session page showed every student's name and ID number**, and
+  the mark-present dropdown listed exactly who was absent, to the whole room.
+  Names and that dropdown are now off by default while a session is live, with
+  a large count in their place; ID numbers are gone from the live view entirely
+  and remain only on the after-class review.
+
+### Added
+
+- **A "Project this" mode** and a much larger QR code — 605px at 1080p instead
+  of 300px, upscaled with hard module edges rather than blurred — plus the
+  check-in URL in text for a student whose camera will not focus, and a live
+  status indicator so a dropped connection no longer looks identical to
+  "nobody has scanned yet".
+
 ### Documentation
 
 - **Corrected the D2L setup sequence.** README, `docs/INSTALL.md` section 6 and

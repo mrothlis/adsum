@@ -1,6 +1,154 @@
 {% extends "base.html" %}
 {% block title %}Live Session — {{ course.name }} — Adsum{% endblock %}
 
+{% block head %}
+<style>
+/* ── Live session page ───────────────────────────────────────────────
+   These styles live here, not in style.css, because they are specific
+   to the one screen that gets projected in front of a class. */
+
+/* The QR gets its own full-width row above the roster. The shared sheet
+   puts this page in two equal columns, which is half of why the code
+   ended up too small to scan from the back of a room. */
+.session-layout { grid-template-columns: 1fr; }
+
+/* Scan range is a function of module size on the wall, so the code is
+   sized from the viewport rather than capped at 300px. `pixelated`
+   keeps module edges hard: the old non-integer *downscale* of the 510px
+   source blurred them, which is the other half of the lost range. */
+.qr-panel { text-align: center; }
+.qr-panel .qr-code {
+    max-width: none;
+    width: min(76vw, 52vh, 760px);
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+    background: #fff;
+}
+#qr-container { min-height: 200px; }
+
+/* Fallback for a student whose camera will not focus. */
+.qr-url-wrap { margin: 0.75rem auto 0; max-width: 92%; }
+.qr-url-label { font-size: 0.95rem; margin: 0 0 0.15rem; }
+.qr-url {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: clamp(0.85rem, 1.15vw, 1.3rem);
+    line-height: 1.35;
+    word-break: break-all;
+    margin: 0;
+}
+
+/* Connection state. Readable from the back of the room, like everything
+   else on this page. */
+.qr-heading-row {
+    display: flex; flex-wrap: wrap; align-items: center;
+    justify-content: center; gap: 0.75rem; margin-bottom: 0.5rem;
+}
+.conn-chip {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-size: clamp(0.9rem, 1.2vw, 1.4rem); font-weight: 600;
+    padding: 0.3rem 0.9rem; border-radius: 999px;
+    background: #ecfdf5; color: #065f46;
+}
+.conn-chip .dot {
+    width: 0.8em; height: 0.8em; border-radius: 50%;
+    background: #10b981; flex: none;
+    animation: conn-beat 2s ease-in-out infinite;
+}
+.conn-chip[data-state="warn"] { background: #fffbeb; color: #92400e; }
+.conn-chip[data-state="warn"] .dot { background: #f59e0b; animation: none; }
+.conn-chip[data-state="lost"] { background: #fef2f2; color: #991b1b; }
+.conn-chip[data-state="lost"] .dot { background: #dc2626; animation: none; }
+@keyframes conn-beat { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.conn-banner {
+    background: #dc2626; color: #fff; font-weight: 700;
+    font-size: clamp(1rem, 1.8vw, 1.9rem); line-height: 1.3;
+    padding: 1rem 1.25rem; border-radius: var(--radius, 10px);
+    margin-bottom: 1rem; text-align: center;
+}
+.conn-banner small {
+    display: block; font-weight: 500; font-size: 0.6em;
+    opacity: 0.92; margin-top: 0.3rem;
+}
+
+/* "N / M checked in" is what replaces the roster by default. */
+.bigcount {
+    font-weight: 800; line-height: 1;
+    font-size: clamp(3rem, 7vw, 7rem);
+    letter-spacing: -0.02em;
+    transition: transform 0.2s ease, color 0.2s ease;
+}
+.bigcount .sep, .bigcount #att-total { color: var(--text-muted, #6b7280); font-weight: 700; }
+.bigcount-label {
+    font-size: clamp(0.9rem, 1.3vw, 1.5rem);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-muted, #6b7280); margin: 0.25rem 0 0.75rem;
+}
+/* NOT .pulse: style.css already uses that class for a 10px status dot,
+   and the collision collapsed this element to 10x10. */
+.bigcount.count-bump { animation: count-pulse 0.9s ease-out; }
+@keyframes count-pulse {
+    0% { transform: scale(1); }
+    25% { transform: scale(1.18); color: #10b981; }
+    100% { transform: scale(1); }
+}
+
+/* A check-in has to be unmistakable from twenty feet — without ever
+   covering the QR code students are still trying to scan. */
+#checkin-flash {
+    position: fixed; left: 50%; bottom: 3vh; transform: translateX(-50%);
+    background: #10b981; color: #fff; border-radius: 18px;
+    padding: 0.4rem 2.2rem 0.8rem; z-index: 60; pointer-events: none;
+    opacity: 0; transition: opacity 0.25s ease;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25); text-align: center;
+}
+#checkin-flash.show { opacity: 1; }
+#checkin-flash .fnum { font-size: clamp(2.5rem, 6.5vw, 5.5rem); font-weight: 900; line-height: 1.05; display: block; }
+#checkin-flash .flabel { font-size: clamp(0.85rem, 1.5vw, 1.5rem); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Privacy controls */
+.privacy-bar { border-top: 1px solid var(--border, #e5e7eb); padding-top: 0.75rem; margin-top: 0.5rem; }
+.privacy-toggle { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; cursor: pointer; }
+.privacy-toggle input { width: 1.1rem; height: 1.1rem; }
+.privacy-note { font-size: 0.85rem; color: var(--text-muted, #6b7280); margin: 0.4rem 0 0; max-width: 62ch; }
+[hidden] { display: none !important; }
+
+/* Project mode: what the room should see, and nothing else — the code
+   and the count, side by side so both fit on one projected screen. */
+body.projecting .navbar,
+body.projecting .footer,
+body.projecting .page-header,
+body.projecting #roster-details,
+body.projecting .privacy-bar,
+body.projecting .qr-url-label,
+body.projecting .session-controls form { display: none !important; }
+body.projecting .container { max-width: none; padding-top: 0.5rem; }
+body.projecting .session-layout {
+    grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr);
+    align-items: center;
+}
+body.projecting .qr-panel .qr-code { width: min(52vw, 70vh, 1000px); }
+body.projecting .qr-panel h2 { font-size: clamp(1.4rem, 2.2vw, 2.4rem); }
+body.projecting .bigcount { font-size: clamp(3rem, 6.5vw, 8rem); white-space: nowrap; }
+body.projecting .bigcount-label { font-size: clamp(1rem, 2vw, 2.2rem); }
+@media (max-width: 768px) {
+    body.projecting .session-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+    .qr-panel .qr-code { width: min(88vw, 46vh); }
+    .bigcount { font-size: clamp(2.5rem, 14vw, 4rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .conn-chip .dot { animation: none !important; }
+    .bigcount.count-bump { animation: none !important; }
+    .bigcount { transition: none; }
+    #checkin-flash { transition: none; }
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
     <h1>{% if session.ended_at %}Session Review{% else %}Live Session{% endif %}</h1>
@@ -10,6 +158,13 @@
         &middot; started {{ session.started_at | localtime('%-I:%M %p') }}
     </p>
 </div>
+
+{% if not session.ended_at %}
+<div id="conn-banner" class="conn-banner" role="alert" hidden>
+    ⚠️ Connection lost — students cannot check in right now.
+    <small id="conn-banner-detail">Leave the code up; trying to reconnect…</small>
+</div>
+{% endif %}
 
 <div class="session-layout">
     <!-- QR Code Panel -->
@@ -25,14 +180,24 @@
             <a href="/instructor/course/{{ course.id }}" class="btn btn-outline">← Back to course</a>
         </div>
         {% else %}
-        <h2>📱 Scan to Check In</h2>
-        <div id="qr-container">
-            <img id="qr-image" src="" alt="QR Code" class="qr-code">
+        <div class="qr-heading-row">
+            <h2 style="margin:0;">📱 Scan to Check In</h2>
+            <span id="conn-chip" class="conn-chip" data-state="warn" aria-live="polite">
+                <span class="dot" aria-hidden="true"></span><span id="conn-text">Connecting…</span>
+            </span>
         </div>
-        <p class="text-muted text-center">QR code rotates every {{ qr_rotation_seconds }} seconds</p>
+        <div id="qr-container">
+            <img id="qr-image" src="" alt="QR code for checking in to this class" class="qr-code">
+        </div>
+        <div class="qr-url-wrap">
+            <p class="qr-url-label text-muted">Camera not working? Open this address:</p>
+            <p class="qr-url" id="qr-url">&nbsp;</p>
+        </div>
+        <p class="text-muted text-center" id="rotation-note" style="margin-top:0.5rem;">QR code rotates every {{ qr_rotation_seconds }} seconds</p>
         <div class="session-controls">
+            <button type="button" class="btn btn-outline" id="project-toggle">🖥️ Project this</button>
             <form method="post" action="/instructor/session/{{ session.id }}/stop"
-                  onsubmit="return confirm('End this attendance session?')">
+                  onsubmit="return confirm('End this attendance session?')" style="display:inline;">
                 <button type="submit" class="btn btn-danger">End Session</button>
             </form>
         </div>
@@ -40,22 +205,37 @@
     </div>
 
     <!-- Attendance Panel -->
-    <div class="card attendance-panel">
-        <div class="attendance-header">
-            <h2>✅ Attendance</h2>
-            <div class="attendance-counter">
-                <span id="att-count">{{ records|length }}</span> / <span id="att-total">{{ enrolled_count }}</span>
-            </div>
+    <div class="card attendance-panel" id="roster-card">
+        <h2 style="margin-top:0;">✅ Attendance</h2>
+
+        <!-- The default readout is a count, not a list of names. -->
+        <div class="bigcount" id="bigcount">
+            <span id="att-count">{{ records|length }}</span><span class="sep"> / </span><span id="att-total">{{ enrolled_count }}</span>
         </div>
+        <p class="bigcount-label">checked in</p>
 
         <div class="progress-bar">
             {% set pct = (records|length / enrolled_count * 100) if enrolled_count > 0 else 0 %}
             <div class="progress-fill" id="progress-fill" style="width: {{ pct|int }}%"></div>
         </div>
 
+        <div class="privacy-bar">
+            <label class="privacy-toggle" for="details-toggle">
+                <input type="checkbox" id="details-toggle">
+                Show student names and the mark-present list
+            </label>
+            <p class="privacy-note" id="privacy-note">
+                Off by default because this screen is usually projected. Student
+                names and attendance are education records under FERPA, and the
+                mark-present list is a public register of who is absent today.
+                Your choice is remembered in this browser.
+            </p>
+        </div>
+
+        <div id="roster-details" {% if not session.ended_at %}hidden{% endif %}>
         <!-- Shown only when at least one row carries the unverified marker;
              a title= tooltip alone is invisible on touch devices. -->
-        <p id="unverified-note" class="text-muted" style="font-size:0.85rem;margin:0 0 0.5rem;
+        <p id="unverified-note" class="text-muted" style="font-size:0.85rem;margin:0.75rem 0 0.5rem;
            {% if records | selectattr('student') | rejectattr('student.d2l_verified') | list | length == 0 %}display:none;{% endif %}">
             ⚠️ Not matched to the D2L roster. Import the class list, or check the
             student's D2L username, before exporting grades.
@@ -65,7 +245,10 @@
             <thead>
                 <tr>
                     <th>Student</th>
-                    <th>ID</th>
+                    {# No ID column while a session is live: the number is never
+                       needed during scanning and it is the most sensitive field
+                       on a projected screen. It stays on the after-class review. #}
+                    {% if session.ended_at %}<th>ID</th>{% endif %}
                     <th>Time</th>
                     <th>Status</th>
                     {% if session.ended_at %}<th></th>{% endif %}
@@ -75,7 +258,7 @@
                 {% for r in records %}
                 <tr>
                     <td>{{ r.student.name if r.student else 'Unknown' }}{% if r.student and not r.student.d2l_verified %} <span title="Not in D2L roster" style="color:#f59e0b;">⚠️</span>{% endif %}</td>
-                    <td>{{ r.student.student_id_number if r.student else '' }}</td>
+                    {% if session.ended_at %}<td>{{ r.student.student_id_number if r.student else '' }}</td>{% endif %}
                     <td>{{ r.checked_in_at | localtime('%H:%M:%S') }}</td>
                     <td>
                         <span class="badge {% if r.status == 'present' %}badge-success{% elif r.status == 'late' %}badge-warning{% elif r.status == 'excused' %}badge-muted{% else %}badge-danger{% endif %}">
@@ -107,8 +290,8 @@
 
         {% if missing_students %}
         <form method="post" action="/instructor/session/{{ session.id }}/mark-present"
-              style="display:flex;gap:0.5rem;margin-top:1rem;">
-            <select name="student_id" style="flex:1;padding:0.5rem;border:1px solid #ccc;border-radius:6px;">
+              style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
+            <select name="student_id" style="flex:1;min-width:11rem;padding:0.5rem;border:1px solid #ccc;border-radius:6px;">
                 {% for s in missing_students %}
                 <option value="{{ s.id }}">{{ s.name }}</option>
                 {% endfor %}
@@ -138,45 +321,281 @@
             Works on an ended session too.
         </p>
         {% endif %}
+        </div><!-- /roster-details -->
     </div>
 </div>
+
+{% if not session.ended_at %}
+<div id="checkin-flash" aria-hidden="true">
+    <span class="fnum" id="flash-num">0</span>
+    <span class="flabel">checked in</span>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
+<script>
+// ── Privacy toggle ──────────────────────────────────────────────────
+// Names are hidden by default on a live session because this page is
+// normally on a projector. The choice is remembered per browser so an
+// instructor running class from their office does not re-click it every
+// session.
+(function () {
+    const KEY = 'adsum.session.showNames';
+    const box = document.getElementById('details-toggle');
+    const panel = document.getElementById('roster-details');
+    if (!box || !panel) return;
+    const liveSession = {% if session.ended_at %}false{% else %}true{% endif %};
+    const stored = localStorage.getItem(KEY);
+    // No stored preference: hidden while live, shown on the after-class
+    // review page, which exists precisely to see and correct names.
+    const show = stored === null ? !liveSession : stored === '1';
+    function apply(on) { panel.hidden = !on; box.checked = on; }
+    apply(show);
+    box.addEventListener('change', function () {
+        apply(box.checked);
+        try { localStorage.setItem(KEY, box.checked ? '1' : '0'); } catch (e) { /* private mode */ }
+    });
+})();
+</script>
+
 {% if not session.ended_at %}
 <script>
 const SESSION_ID = {{ session.id }};
 const ROTATION_MS = {{ qr_rotation_seconds }} * 1000;
 
-// Fetch and update QR code
+// ── Connection state ────────────────────────────────────────────────
+// Three things fail independently: the QR refresh, the SSE stream, and
+// the network itself. The room needs one honest answer, so the worst of
+// them wins — and the word "ended" is never used for a condition the
+// browser cannot distinguish from an outage.
+const chip = document.getElementById('conn-chip');
+const chipText = document.getElementById('conn-text');
+const banner = document.getElementById('conn-banner');
+const bannerDetail = document.getElementById('conn-banner-detail');
+
+let qrHealthy = false;      // last QR fetch succeeded
+let sseHealthy = false;     // SSE stream is open
+let lastContact = 0;        // ms timestamp of the last usable server reply
+let sessionClosed = false;  // the server confirmed, repeatedly, that it is over
+
+function markContact() { lastContact = Date.now(); }
+
+function agoText() {
+    if (!lastContact) return 'no contact yet';
+    const s = Math.round((Date.now() - lastContact) / 1000);
+    if (s < 2) return 'updated just now';
+    if (s < 90) return 'updated ' + s + 's ago';
+    return 'updated ' + Math.round(s / 60) + 'm ago';
+}
+
+function renderStatus() {
+    if (sessionClosed) return;
+    const age = lastContact ? Date.now() - lastContact : Infinity;
+    // Staleness alone is enough to stop claiming "Live": the heartbeat
+    // runs every 5s, so nothing newer than 12s means the network is gone
+    // even if no handler has fired an error yet.
+    const fresh = age <= 12000;
+    if (qrHealthy && sseHealthy && fresh) {
+        chip.dataset.state = 'ok';
+        chipText.textContent = 'Live · ' + agoText();
+        banner.hidden = true;
+        return;
+    }
+    const scansBroken = !qrHealthy || age > 20000;
+    chip.dataset.state = scansBroken ? 'lost' : 'warn';
+    chipText.textContent = 'Reconnecting… ' + agoText();
+    bannerDetail.textContent = scansBroken
+        ? 'Leave the code up — it may still be valid. Trying to reconnect (' + agoText() + ').'
+        : 'The live list is not updating. Scans are still being recorded.';
+    banner.hidden = false;
+}
+setInterval(renderStatus, 1000);
+
+// A cheap reachability probe, so a dead network shows up within seconds
+// instead of at the next QR rotation.
+async function heartbeat() {
+    try {
+        const r = await fetch('/healthz', { cache: 'no-store' });
+        if (r.ok) markContact();
+    } catch (e) { /* renderStatus ages the timestamp on its own */ }
+}
+setInterval(heartbeat, 5000);
+
+// ── QR refresh ──────────────────────────────────────────────────────
 let qrTimer = null;
-function stopQR(message) {
-    if (qrTimer !== null) { clearInterval(qrTimer); qrTimer = null; }
+let failures = 0;      // consecutive transport / 5xx failures
+let goneStreak = 0;    // consecutive 404/410 — the only "really over" signal
+
+function scheduleQR(ms) {
+    if (qrTimer !== null) clearTimeout(qrTimer);
+    qrTimer = setTimeout(refreshQR, ms);
+}
+
+function closeSession(message) {
+    sessionClosed = true;
+    if (qrTimer !== null) { clearTimeout(qrTimer); qrTimer = null; }
     const box = document.getElementById('qr-container');
-    if (box) box.innerHTML = '<p class="text-muted">' + message + '</p>';
+    if (box) {
+        box.textContent = '';
+        const p = document.createElement('p');
+        p.className = 'text-muted';
+        p.style.fontSize = '1.5rem';
+        p.textContent = message;
+        box.appendChild(p);
+    }
+    const u = document.getElementById('qr-url');
+    if (u) u.textContent = '';
+    const wrap = document.querySelector('.qr-url-wrap');
+    if (wrap) wrap.hidden = true;
+    const rot = document.getElementById('rotation-note');
+    if (rot) rot.hidden = true;
+    chip.dataset.state = 'warn';
+    chipText.textContent = 'Session closed';
+    banner.hidden = true;
+}
+
+function qrFailed(reason) {
+    failures += 1;
+    goneStreak = 0;
+    qrHealthy = false;
+    console.warn('QR refresh failed (' + reason + '), attempt ' + failures);
+    renderStatus();
+    // The last QR stays on screen: it may still be inside its validity
+    // window, and a blank projector helps nobody.
+    scheduleQR(Math.min(2000 * Math.pow(2, failures - 1), 30000));
 }
 
 async function refreshQR() {
+    if (sessionClosed) return;
+    let resp;
     try {
-        const resp = await fetch(`/api/qr/${SESSION_ID}`);
-        if (!resp.ok) {
-            // Session is over (or gone). Stop polling so we don't hammer the server.
-            stopQR('Session ended.');
-            return;
-        }
-        const data = await resp.json();
-        document.getElementById('qr-image').src = data.qr;
+        resp = await fetch('/api/qr/' + SESSION_ID, { cache: 'no-store' });
     } catch (e) {
-        console.error('QR refresh error:', e);
+        qrFailed('network');            // offline, DNS, TLS, tunnel down
+        return;
     }
+
+    if (resp.status === 404 || resp.status === 410) {
+        // The only answers that mean the session is genuinely gone, and
+        // even those are confirmed three times before a room is told.
+        goneStreak += 1;
+        markContact();
+        if (goneStreak >= 3) {
+            closeSession('This session is closed. Students can no longer check in.');
+        } else {
+            qrHealthy = false;
+            renderStatus();
+            scheduleQR(2000);
+        }
+        return;
+    }
+
+    if (!resp.ok) {         // 500 from lock contention, 502/503 from a proxy…
+        markContact();      // something answered, just not usefully
+        qrFailed('http ' + resp.status);
+        return;
+    }
+
+    let data;
+    try {
+        data = await resp.json();
+    } catch (e) {
+        qrFailed('unparseable response');   // captive portal, HTML error page
+        return;
+    }
+    if (!data || !data.qr) { qrFailed('no qr in response'); return; }
+
+    failures = 0;
+    goneStreak = 0;
+    qrHealthy = true;
+    markContact();
+    document.getElementById('qr-image').src = data.qr;
+    const urlEl = document.getElementById('qr-url');
+    if (urlEl && data.url) urlEl.textContent = data.url;
+    renderStatus();
+    scheduleQR(ROTATION_MS);
 }
 
-// SSE for live attendance updates
+// ── Live attendance (SSE) ───────────────────────────────────────────
+const SHOW_ID_COLUMN = false;     // never while the session is live
+let lastCount = {{ records|length }};
+let sseRetry = 2000;
+
+function flashCheckin(count) {
+    const big = document.getElementById('bigcount');
+    if (big) {
+        big.classList.remove('count-bump');
+        void big.offsetWidth;            // restart the animation
+        big.classList.add('count-bump');
+    }
+    const flash = document.getElementById('checkin-flash');
+    if (!flash) return;
+    document.getElementById('flash-num').textContent = count;
+    flash.classList.add('show');
+    clearTimeout(flashCheckin._t);
+    flashCheckin._t = setTimeout(() => flash.classList.remove('show'), 2200);
+}
+
+function renderRows(records) {
+    const tbody = document.getElementById('attendance-body');
+    if (!tbody) return;
+    tbody.textContent = '';
+    records.forEach(r => {
+        const tr = document.createElement('tr');
+
+        // textContent, never innerHTML with a template literal: a student
+        // name is attacker-controlled input on this origin.
+        const nameTd = document.createElement('td');
+        nameTd.textContent = r.student_name;
+        if (!r.d2l_verified) {
+            const warn = document.createElement('span');
+            warn.title = 'Not in D2L roster';
+            warn.style.color = '#f59e0b';
+            warn.textContent = ' \u26a0\ufe0f';
+            nameTd.appendChild(warn);
+        }
+        tr.appendChild(nameTd);
+
+        if (SHOW_ID_COLUMN) {
+            const idTd = document.createElement('td');
+            idTd.textContent = r.student_id;
+            tr.appendChild(idTd);
+        }
+
+        const timeTd = document.createElement('td');
+        timeTd.textContent = r.checked_in_at;
+        tr.appendChild(timeTd);
+
+        const statusTd = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.className = 'badge ' + (r.status === 'present' ? 'badge-success'
+            : r.status === 'late' ? 'badge-warning'
+            : r.status === 'excused' ? 'badge-muted' : 'badge-danger');
+        badge.textContent = r.status.charAt(0).toUpperCase() + r.status.slice(1);
+        statusTd.appendChild(badge);
+        tr.appendChild(statusTd);
+
+        tbody.appendChild(tr);
+    });
+}
+
 function connectSSE() {
-    const evtSource = new EventSource(`/api/attendance/${SESSION_ID}/stream`);
+    const evtSource = new EventSource('/api/attendance/' + SESSION_ID + '/stream');
+
+    evtSource.onopen = () => {
+        sseHealthy = true;
+        sseRetry = 2000;
+        markContact();
+        renderStatus();
+    };
 
     evtSource.addEventListener('attendance_update', (e) => {
-        const data = JSON.parse(e.data);
+        sseHealthy = true;
+        markContact();
+        let data;
+        try { data = JSON.parse(e.data); } catch (err) { return; }
+
         document.getElementById('att-count').textContent = data.count;
         document.getElementById('att-total').textContent = data.enrolled;
 
@@ -186,32 +605,51 @@ function connectSSE() {
         const note = document.getElementById('unverified-note');
         if (note) note.style.display = data.records.some(r => !r.d2l_verified) ? '' : 'none';
 
-        const tbody = document.getElementById('attendance-body');
-        tbody.innerHTML = data.records.map(r => `
-            <tr>
-                <td>${r.student_name}${!r.d2l_verified ? ' <span title="Not in D2L roster" style="color:#f59e0b;">\u26a0\ufe0f</span>' : ''}</td>
-                <td>${r.student_id}</td>
-                <td>${r.checked_in_at}</td>
-                <td><span class="badge ${r.status === 'present' ? 'badge-success' : r.status === 'late' ? 'badge-warning' : 'badge-danger'}">${r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span></td>
-            </tr>
-        `).join('');
+        renderRows(data.records);
+
+        if (data.count > lastCount) flashCheckin(data.count);
+        lastCount = data.count;
+        renderStatus();
     });
 
+    // An explicit statement from the server, not an inference drawn from
+    // a failed fetch. This one is trusted.
     evtSource.addEventListener('session_ended', () => {
         evtSource.close();
-        stopQR('Session has ended.');
+        sseHealthy = false;
+        closeSession('This session is closed. Students can no longer check in.');
     });
 
     evtSource.onerror = () => {
         evtSource.close();
-        setTimeout(connectSSE, 5000);
+        sseHealthy = false;
+        renderStatus();
+        if (sessionClosed) return;
+        setTimeout(connectSSE, sseRetry);
+        sseRetry = Math.min(sseRetry * 2, 30000);
     };
 }
 
+// ── Project mode ────────────────────────────────────────────────────
+(function () {
+    const btn = document.getElementById('project-toggle');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        const on = document.body.classList.toggle('projecting');
+        btn.textContent = on ? '↩ Exit projection' : '🖥️ Project this';
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && document.body.classList.contains('projecting')) {
+            document.body.classList.remove('projecting');
+            btn.textContent = '🖥️ Project this';
+        }
+    });
+})();
+
 // Initialize
 refreshQR();
-qrTimer = setInterval(refreshQR, ROTATION_MS);
 connectSSE();
+heartbeat();
 </script>
 {% endif %}
 {% endblock %}
