@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Analytics — {{ course.name }} — Adsum{% endblock %}
+{% block title %}Analytics | {{ course.name }} | Adsum{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -31,7 +31,7 @@
     </div>
     <div class="card stat-card">
         <div class="stat-value">
-            {% if session_counts and enrolled_count %}{{ ((session_counts|sum / session_counts|length) / enrolled_count * 100)|round|int }}%{% else %}—{% endif %}
+            {% if session_counts and enrolled_count %}{{ ((session_counts|sum / session_counts|length) / enrolled_count * 100)|round|int }}%{% else %}<span class="sr-only">Not recorded</span><span aria-hidden="true">&middot;</span>{% endif %}
         </div>
         <div class="stat-label">Avg. Attendance Rate</div>
     </div>

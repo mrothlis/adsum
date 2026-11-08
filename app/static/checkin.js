@@ -1,4 +1,4 @@
-/* checkin.js — one-tap check-in.
+/* checkin.js: one-tap check-in.
    When the course enforces a geofence, grab the phone's location first
    and attach it to the POST; otherwise submit as-is. */
 (() => {

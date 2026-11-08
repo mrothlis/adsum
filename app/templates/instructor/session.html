@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Live Session — {{ course.name }} — Adsum{% endblock %}
+{% block title %}Live Session | {{ course.name }} | Adsum{% endblock %}
 
 {% block head %}
 <style>
@@ -105,7 +105,7 @@
     100% { transform: scale(1); }
 }
 
-/* A check-in has to be unmistakable from twenty feet — without ever
+/* A check-in has to be unmistakable from twenty feet, without ever
    covering the QR code students are still trying to scan. */
 #checkin-flash {
     position: fixed; left: 50%; bottom: 3vh; transform: translateX(-50%);
@@ -125,7 +125,7 @@
 .privacy-note { font-size: 0.85rem; color: var(--text-muted, #6b7280); margin: 0.4rem 0 0; max-width: 62ch; }
 [hidden] { display: none !important; }
 
-/* Project mode: what the room should see, and nothing else — the code
+/* Project mode: what the room should see, and nothing else: the code
    and the count, side by side so both fit on one projected screen. */
 body.projecting .navbar,
 body.projecting .footer,
@@ -174,7 +174,7 @@ body.projecting .bigcount-label { font-size: clamp(1rem, 2vw, 2.2rem); }
 
 {% if not session.ended_at %}
 <div id="conn-banner" class="conn-banner" role="alert" hidden>
-    <span aria-hidden="true">⚠️</span> Connection lost — students cannot check in right now.
+    <span aria-hidden="true">⚠️</span> Connection lost. Students cannot check in right now.
     <small id="conn-banner-detail">Leave the code up; trying to reconnect…</small>
 </div>
 {% endif %}
@@ -383,7 +383,7 @@ const ROTATION_MS = {{ qr_rotation_seconds }} * 1000;
 // ── Connection state ────────────────────────────────────────────────
 // Three things fail independently: the QR refresh, the SSE stream, and
 // the network itself. The room needs one honest answer, so the worst of
-// them wins — and the word "ended" is never used for a condition the
+// them wins, and the word "ended" is never used for a condition the
 // browser cannot distinguish from an outage.
 const chip = document.getElementById('conn-chip');
 const chipText = document.getElementById('conn-text');
@@ -437,7 +437,7 @@ function renderStatus() {
     chip.dataset.state = scansBroken ? 'lost' : 'warn';
     chipText.textContent = 'Reconnecting… ' + agoText();
     bannerDetail.textContent = scansBroken
-        ? 'Leave the code up — it may still be valid. Trying to reconnect (' + agoText() + ').'
+        ? 'Leave the code up; it may still be valid. Trying to reconnect (' + agoText() + ').'
         : 'The live list is not updating. Scans are still being recorded.';
     banner.hidden = false;
 }
@@ -456,7 +456,7 @@ setInterval(heartbeat, 5000);
 // ── QR refresh ──────────────────────────────────────────────────────
 let qrTimer = null;
 let failures = 0;      // consecutive transport / 5xx failures
-let goneStreak = 0;    // consecutive 404/410 — the only "really over" signal
+let goneStreak = 0;    // consecutive 404/410, the only "really over" signal
 
 function scheduleQR(ms) {
     if (qrTimer !== null) clearTimeout(qrTimer);

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — Adsum{% endblock %}
+{% block title %}Dashboard | Adsum{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -68,7 +68,7 @@
         {% if course.id in active_sessions %}
         <div class="session-active">
             <span class="pulse"></span>
-            <span>Live Session — {{ active_sessions[course.id].count }} checked in</span>
+            <span>Live Session: {{ active_sessions[course.id].count }} checked in</span>
         </div>
         <a href="/instructor/session/{{ active_sessions[course.id].session.id }}" class="btn btn-success btn-block">
             View Live Session
@@ -110,7 +110,7 @@
         <h3>No courses yet. That is normal on day one.</h3>
         <p>
             A course gets into Adsum one of two ways, and they lead to the same
-            app — the same rotating QR code, the same roster import, the same
+            app: the same rotating QR code, the same roster import, the same
             attendance policy, the same exports. They differ only in how Adsum
             learns <em>who</em> scanned.
         </p>
@@ -118,7 +118,7 @@
         <h4 style="margin-bottom:0.25rem;">1. Launch it from D2L</h4>
         <p>
             Best if you have Brightspace. D2L tells Adsum the course name, the
-            code and who you are, so nothing is typed twice — and because the
+            code and who you are, so nothing is typed twice, and because the
             LMS vouches for each student, nobody can check in as a classmate.
         </p>
         <ol>

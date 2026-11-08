@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Settings — {{ course.name }} — Adsum{% endblock %}
+{% block title %}Settings | {{ course.name }} | Adsum{% endblock %}
 
 {% block content %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -55,7 +55,7 @@
         <p class="help-text">
             <span aria-hidden="true">ℹ️</span>
             The D2L org unit id and check-in link do not apply to a standalone
-            course — nothing here launches from an LMS. Switch the mode below
+            course. Nothing here launches from an LMS. Switch the mode below
             if you connect this course to D2L later.
         </p>
         {% endif %}
@@ -65,9 +65,9 @@
         <h2>How students are identified</h2>
         <p class="text-muted">
             This is the one real difference between the two ways of running
-            Adsum. Everything else — the rotating QR code, the typed fallback,
-            the roster import, your attendance policy, the geofence and the
-            exports — works the same either way.
+            Adsum. Everything else works the same either way: the rotating QR
+            code, the typed fallback, the roster import, your attendance
+            policy, the geofence and the exports.
         </p>
         <div class="form-group">
             <label style="display:flex;gap:0.6rem;align-items:flex-start;">
@@ -92,7 +92,7 @@
                        style="width:auto;margin-top:0.35rem;"
                        {% if course.is_standalone %}checked{% endif %}>
                 <span>
-                    <strong>No LMS — students claim their name once (standalone)</strong><br>
+                    <strong>No LMS: students claim their name once (standalone)</strong><br>
                     <span class="text-muted">
                         The first time a student scans, they pick their name from
                         your roster and that phone is theirs for the term. Nothing
@@ -100,7 +100,7 @@
                         at that first scan a student could pick a classmate's name.
                         Each name can be claimed on one phone only, so the real
                         student is then refused and the clash is shown on your
-                        course page while you can still fix it — and you can
+                        course page while you can still fix it, and you can
                         release a phone so the right student can claim it. But the
                         LMS path is stronger, because something outside Adsum has
                         already proved who the student is.
@@ -195,7 +195,7 @@
             <label style="display:flex;align-items:center;gap:0.5rem;">
                 <input type="checkbox" name="geofence_enabled" value="true"
                        {% if course.geofence_enabled %}checked{% endif %} style="width:auto;">
-                <span><strong>Enforce geofence</strong> — ask each student's phone for location at check-in and block anyone outside the circle. Leave off to check in without location.</span>
+                <span><strong>Enforce geofence</strong>: ask each student's phone for location at check-in and block anyone outside the circle. Leave off to check in without location.</span>
             </label>
         </div>
     </div>
@@ -262,7 +262,7 @@
         attendance.
         {% if course.mode == 'standalone' %}
         This course does not sync to an LMS, so <strong>this is the only copy
-        of its attendance</strong> — download the CSV first if you may need it.
+        of its attendance</strong>. Download the CSV first if you may need it.
         {% else %}
         Attendance already imported into the D2L gradebook stays in D2L; this
         only removes Adsum's copy.

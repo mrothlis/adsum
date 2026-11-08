@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Check that classlist — Adsum{% endblock %}
+{% block title %}Check that classlist | Adsum{% endblock %}
 
 {% block content %}
 {# Shown instead of doing the import, when the uploaded file would remove more
@@ -9,7 +9,7 @@
    can be trusted either. #}
 <div class="page-header">
     <h1>That classlist would remove {{ would_drop_count }} of your {{ active_count }} students</h1>
-    <p class="subtitle">{{ course_name }}{% if course_code %} — {{ course_code }}{% endif %}</p>
+    <p class="subtitle">{{ course_name }}{% if course_code %} ({{ course_code }}){% endif %}</p>
 </div>
 
 <div class="card">
@@ -84,7 +84,7 @@
         <div class="form-group">
             <label>
                 <input type="checkbox" name="confirm_drops" value="{{ confirm_value }}" required>
-                Yes — I checked the file, and these students have left the course.
+                Yes, I checked the file, and these students have left the course.
             </label>
         </div>
         <button type="submit" class="btn btn-danger">

@@ -12,9 +12,9 @@ Usage:
 Exits non-zero on any failure.
 """
 import os
+import re
 import sqlite3
 import sys
-import time as _time
 
 import requests
 
@@ -135,15 +135,58 @@ def main():
                       allow_redirects=False)
     check("throttling one account did not lock out the admin", r.status_code == 302)
 
-    # 5. target course — create a fresh session
+    # 5. target course
+    #
+    # A DISPOSABLE course, created here and deleted at the end. This used to
+    # pick "the course with the most enrolled students", which on a real
+    # install is the instructor's actual class. It then started sessions in
+    # it, marked real students present, and deliberately left the rows behind
+    # with a comment calling the test data harmless.
+    #
+    # It was not harmless. Those sessions are closed, so they count as class
+    # meetings: a session this script created and left behind is a class
+    # every student is recorded as having missed, and the next export sends
+    # that to the D2L gradebook as a grade. On this project's own live
+    # install it had quietly added two fabricated meetings to a real course.
+    # A test must not write into data it did not create, for the same reason
+    # it must not delete it.
+    #
+    # The disposable course is created in D2L mode, NOT standalone. The
+    # first attempt used standalone on the reasoning that it needs no LTI
+    # launch to enrol anyone and that the flows are the same either way. The
+    # second half of that is false, and the test said so immediately: in
+    # standalone mode a student is identified by a claimed device binding,
+    # so the forged LTI student cookie this script uses below was rejected
+    # and three check-in assertions failed. D2L mode is also the right
+    # choice on the merits, because the LTI-identified check-in is the
+    # primary path and is what this script exists to exercise. The roster
+    # import works in either mode, which is what actually matters here.
     global COURSE_ID
-    _db = get_db()
+    created_course = None
     if not COURSE_ID:
-        _c = _db.execute("""SELECT ce.course_id FROM course_enrollments ce
-                            WHERE ce.student_id IS NOT NULL
-                            GROUP BY ce.course_id ORDER BY COUNT(*) DESC LIMIT 1""").fetchone()
-        assert _c, "No course with enrolled students; set TEST_COURSE_ID."
-        COURSE_ID = _c[0]
+        r = s.post(BASE + "/instructor/courses/new", cookies=icook,
+                   allow_redirects=True,
+                   data={"name": "Smoke Test (disposable)",
+                         "course_code": "ZZSMOKE", "mode": "d2l"})
+        m = re.search(r"/instructor/course/(\d+)", r.url)
+        assert m, "could not create the disposable smoke-test course"
+        COURSE_ID = int(m.group(1))
+        created_course = COURSE_ID
+        roster = ("Username,Last Name,First Name,End-of-Line Indicator\n"
+                  "#smoke01,Tester,Ada,#\n#smoke02,Checker,Grace,#\n")
+        r = s.post(BASE + f"/instructor/course/{COURSE_ID}/import-roster",
+                   cookies=icook,
+                   files={"roster_file": ("roster.csv", roster.encode(),
+                                          "text/csv")})
+        check("disposable course created and roster imported",
+              r.status_code in (200, 302))
+        print(f"   (using disposable course {COURSE_ID}; "
+              f"it is deleted at the end of this run)")
+    else:
+        print(f"   (using TEST_COURSE_ID={COURSE_ID}; "
+              f"it will NOT be deleted)")
+
+    _db = get_db()
     _students = [r[0] for r in _db.execute(
         "SELECT student_id FROM course_enrollments WHERE course_id=? AND student_id IS NOT NULL ORDER BY student_id",
         (COURSE_ID,))]
@@ -242,30 +285,48 @@ def main():
     r = s.get(BASE + f"/instructor/course/{COURSE_ID}/export-d2l", cookies=icook)
     check("export-d2l CSV downloads", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
 
-    # 13. Sessions are already stopped above (leave records in DB; test data is harmless)
-    # Optional: full cleanup of test records (requires --cleanup flag)
-    if "--cleanup" in sys.argv:
-        def db_exec_with_retry(db, sql, params, retries=3, delay=0.5):
-            for attempt in range(retries):
-                try:
-                    db.execute(sql, params)
-                    return
-                except sqlite3.OperationalError as e:
-                    if "locked" in str(e).lower() and attempt < retries - 1:
-                        _time.sleep(delay)
-                    else:
-                        raise
-        for x in (sid, sid1):
-            db_exec_with_retry(get_db(), "DELETE FROM attendance_records WHERE session_id=?", (x,))
-            db_exec_with_retry(get_db(), "DELETE FROM sessions WHERE id=?", (x,))
-        get_db().commit()
+    # 13. Delete the disposable course, unconditionally.
+    #
+    # This was behind a --cleanup flag, which meant the default behaviour of
+    # the script was to leave its sessions and attendance rows in place. The
+    # flag is gone: cleanup is not an option, because the rows it leaves
+    # behind are counted as class meetings by every grade-facing query.
+    #
+    # Only a course this script CREATED is deleted. If TEST_COURSE_ID was set
+    # explicitly, the operator chose the course and it is left alone, since
+    # deleting somebody's named course would be the original bug with the
+    # sign reversed.
+    if created_course:
+        r = s.post(BASE + f"/instructor/course/{created_course}/delete",
+                   cookies=icook, data={"confirm": "delete"},
+                   allow_redirects=False)
+        check("disposable course deleted", r.status_code in (302, 303))
+        left = get_db().execute(
+            "SELECT COUNT(*) FROM sessions WHERE course_id=?",
+            (created_course,)).fetchone()[0]
+        check("no sessions left behind", left == 0)
+        stranded = get_db().execute(
+            "SELECT COUNT(*) FROM students s WHERE NOT EXISTS "
+            "(SELECT 1 FROM course_enrollments e WHERE e.student_id = s.id)"
+        ).fetchone()[0]
+        # NOT EXISTS, never NOT IN: instructor enrollment rows carry a NULL
+        # student_id, and one NULL makes NOT IN match nothing at all.
+        check("no stranded students left behind", stranded == 0,
+              f"{stranded} students belong to no course")
 
     # 14. Optional: reset-data (only if --reset flag)
     if RUN_RESET:
         r = s.post(BASE + f"/instructor/course/{COURSE_ID}/reset-data", cookies=icook, allow_redirects=False)
         check("reset-data redirects", r.status_code == 302 and "reset=1" in r.headers.get("location", ""))
-        left = get_db().execute("SELECT COUNT(*) FROM sessions WHERE course_id=1").fetchone()[0]
-        check("reset wiped course 1 sessions", left == 0)
+        # COURSE_ID, not a hardcoded 1. This asserted on course 1 while
+        # posting to COURSE_ID, so it reported the state of an unrelated
+        # course: it would pass whenever course 1 happened to be empty and
+        # fail whenever it was not, in both cases saying nothing about
+        # whether reset-data had worked.
+        left = get_db().execute(
+            "SELECT COUNT(*) FROM sessions WHERE course_id=?",
+            (COURSE_ID,)).fetchone()[0]
+        check("reset wiped the target course's sessions", left == 0)
 
     # 15. Verify geofence enforcement when enabled (quick test)
     # Enable on the target course, try out-of-range GPS -> blocked, then disable

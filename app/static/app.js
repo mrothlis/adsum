@@ -1,4 +1,4 @@
-/* app.js — Global helpers for Adsum */
+/* app.js: global helpers for Adsum */
 
 /* Alerts.
    This file used to delete every element with class .alert five seconds after
