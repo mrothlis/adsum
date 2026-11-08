@@ -62,8 +62,27 @@
 
 <style>
     /* Big, monospaced and widely spaced: this is read off a projector at the
-       back of a room and typed in a hurry. */
-    .code-input {
+       back of a room and typed in a hurry.
+
+       The selector is `.form-group input.code-input` and not plain
+       `.code-input`, which is what it used to be and which never worked.
+       style.css carries:
+
+           .form-group input, .form-group select, .form-group textarea
+           { font-size: 0.95rem; font-family: var(--font); }
+
+       That is specificity (0,1,1) against this rule's (0,1,0), so it won on
+       both font-size and font-family regardless of source order. Measured in
+       a browser, this field rendered at 15.2px in the body sans-serif rather
+       than 2rem monospace, while letter-spacing applied normally because
+       nothing competed for it. The result looked deliberate, which is why it
+       survived: a slightly small but evenly spaced code box.
+
+       This is the page a student only reaches BECAUSE their camera has
+       already failed, standing in a lecture theatre reading six characters
+       off a projector. It is the last fallback before they give up, and it
+       was the smallest text on it. */
+    .form-group input.code-input {
         width: 100%;
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: 2rem;
@@ -72,7 +91,7 @@
         text-transform: uppercase;
         padding: 0.6rem 0.4rem;
     }
-    .code-input::placeholder {
+    .form-group input.code-input::placeholder {
         letter-spacing: 0.35em;
         /* Placeholder text is text, and WCAG 1.4.3 applies to it. The old
            opacity: 0.35 took #757575 from 4.6:1 down to a measured 1.56:1

@@ -213,6 +213,38 @@ def main() -> int:
           ".skip-link:focus" in CSS.read_text(encoding="utf-8"),
           "a skip link that stays off-screen when focused helps nobody")
 
+    print("\nThe typed-code field is not overridden by the cascade")
+    # The typed code is the last fallback before a student gives up: they are
+    # standing in a lecture theatre, their camera has failed, and they are
+    # reading six characters off a projector. It is styled at 2rem monospace
+    # for that reason.
+    #
+    # It rendered at 15.2px in the body sans-serif instead, for months,
+    # because the rule was `.code-input` (0,1,0) while style.css carries
+    # `.form-group input` (0,1,1) setting font-size and font-family. Source
+    # order does not help: the more specific selector wins wherever it sits.
+    # Nothing reported it because the field still looked tidy, just small, and
+    # a human reading the template sees `font-size: 2rem` and believes it.
+    #
+    # Checked as a string rather than by rendering, because the whole failure
+    # was that the declared value and the applied value disagreed.
+    code_html = (TPL / "student" / "code.html").read_text(encoding="utf-8")
+    css_text = CSS.read_text(encoding="utf-8")
+    competing = re.search(r"\.form-group\s+input[^{]*\{[^}]*font-size", css_text)
+    check("style.css still has a .form-group input rule that would win",
+          competing is not None,
+          "if this rule is gone the specificity workaround can be simplified")
+    check("the code field selector out-specifies it",
+          ".form-group input.code-input {" in code_html,
+          "found a bare .code-input rule, which loses to .form-group input")
+    check("the placeholder rule does too",
+          ".form-group input.code-input::placeholder {" in code_html)
+    check("and it still asks for 2rem monospace",
+          bool(re.search(r"\.form-group input\.code-input\s*\{[^}]*font-size:\s*2rem",
+                         code_html))
+          and bool(re.search(r"\.form-group input\.code-input\s*\{[^}]*monospace",
+                             code_html)))
+
     print("-" * 52)
     if failures:
         print(f"{len(failures)} FAILED: {failures}")
