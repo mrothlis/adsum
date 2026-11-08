@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import logging
 import secrets
@@ -10,6 +9,7 @@ import secrets
 from sqlalchemy import func, select
 
 from app.auth import hash_password
+from app.clock import utc_now
 from app.config import settings
 from app.database import async_session
 from app.models import Course, CourseEnrollment, Institution, Instructor, Student
@@ -92,7 +92,7 @@ async def seed_demo_data() -> None:
         # that an import happened -- otherwise the demo course opens with a
         # stale-roster warning that describes the seed script rather than
         # anything a reader of the screenshots should worry about.
-        _now = dt.datetime.utcnow()
+        _now = utc_now()
         course.roster_last_imported_at = _now
         course.roster_last_import_summary = json.dumps({
             "at": _now.isoformat(timespec="seconds"),

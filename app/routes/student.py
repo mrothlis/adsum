@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import logging
 import time
 from typing import Optional
@@ -15,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import devices
 from app.auth import get_current_user
+from app.clock import utc_now
 from app.database import get_db
 from app.geo import check_geofence, check_ip_range
 from app.main import templates
@@ -499,7 +499,7 @@ async def _record_attendance(request: Request, db: AsyncSession, session: Sessio
     # 8. Late check, using this course's threshold rather than the server's
     status = "present"
     if session.started_at:
-        elapsed = (dt.datetime.utcnow() - session.started_at).total_seconds() / 60
+        elapsed = (utc_now() - session.started_at).total_seconds() / 60
         if elapsed > policy_for(course).late_threshold_minutes:
             status = "late"
 

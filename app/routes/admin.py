@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user, hash_password
 from app.authz import require_admin
+from app.clock import utc_now
 from app.config import settings
 from app.database import get_db
 from app.main import templates
@@ -208,7 +209,7 @@ async def toggle_admin(
     target.is_admin = not target.is_admin
     # Changing someone's rights must also end their current session, so the
     # new level applies immediately rather than after their cookie expires.
-    target.sessions_valid_from = dt.datetime.utcnow()
+    target.sessions_valid_from = utc_now()
     await db.commit()
     log.warning("Admin set is_admin=%s for %r", target.is_admin, target.email)
     verb = "now+an+admin" if target.is_admin else "no+longer+an+admin"
@@ -239,7 +240,7 @@ async def toggle_active(
     if not target.is_active:
         # Same reasoning as a password reset: deactivating an account has to
         # end its live sessions, not just block the next sign-in.
-        target.sessions_valid_from = dt.datetime.utcnow()
+        target.sessions_valid_from = utc_now()
     await db.commit()
     log.warning("Admin %s account %r",
                 "reactivated" if target.is_active else "deactivated", target.email)
@@ -269,7 +270,7 @@ async def reset_password(
     # Revoke anything already issued. A reset that leaves the old 12-hour
     # cookie working is not a reset: whoever you were locking out keeps their
     # session until it expires on its own.
-    target.sessions_valid_from = dt.datetime.utcnow()
+    target.sessions_valid_from = utc_now()
     await db.commit()
     log.warning("Admin reset the password for %r", target.email)
     return RedirectResponse(f"/admin?saved=Password+reset+for+{target.email}",

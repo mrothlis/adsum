@@ -38,6 +38,7 @@ from app.authz import (
     owned_course,
     owned_session,
 )
+from app.clock import utc_now
 from app.config import settings
 from app.database import get_db
 from app.main import _to_local, templates
@@ -252,7 +253,7 @@ def _roster_freshness(course: Course) -> dict:
                        "No classlist has been imported into Adsum for this "
                        "course yet."),
         }
-    now = dt.datetime.utcnow()
+    now = utc_now()
     days = max(0, (now - last).days)
     if days == 0:
         phrase = f"You imported a {what} today."
@@ -833,7 +834,7 @@ async def release_binding(request: Request, course_id: int, binding_id: int,
                             status_code=404)
 
     if binding.released_at is None:
-        binding.released_at = dt.datetime.utcnow()
+        binding.released_at = utc_now()
         binding.released_by_instructor_id = user.get("instructor_id")
         await db.commit()
         log.warning("RELEASE: binding %s (student %s, course %s) released by "
@@ -864,7 +865,7 @@ async def review_claim_conflicts(request: Request, course_id: int,
     rows = (await db.execute(select(ClaimConflict).where(
         ClaimConflict.course_id == course_id,
         ClaimConflict.reviewed_at.is_(None)))).scalars().all()
-    now = dt.datetime.utcnow()
+    now = utc_now()
     for row in rows:
         row.reviewed_at = now
     await db.commit()
@@ -927,7 +928,7 @@ async def stop_session(request: Request, session_id: int, db: AsyncSession = Dep
     if not session:
         return RedirectResponse("/instructor/dashboard", status_code=302)
     if session.ended_at is None:
-        session.ended_at = dt.datetime.utcnow()
+        session.ended_at = utc_now()
         await db.commit()
     return RedirectResponse(f"/instructor/course/{session.course_id}", status_code=302)
 
@@ -2007,7 +2008,7 @@ async def import_d2l_roster(
         }, status_code=409)
 
     # ── Phase 4: apply the reconciliation ──
-    now = dt.datetime.utcnow()
+    now = utc_now()
     # The change log goes on screen, so it must not name D2L to an instructor
     # who has no D2L. The columns are still called d2l_* in the schema (they
     # are the same identity fields either way); only the wording changes.

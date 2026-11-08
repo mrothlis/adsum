@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -32,7 +33,7 @@ log = logging.getLogger("adsum")
 def _localtime(value, fmt: str = "%H:%M"):
     """Render a naive-UTC datetime in the institution's local timezone.
 
-    Every timestamp in the DB is stored as naive UTC (datetime.utcnow()).
+    Every timestamp in the DB is stored as naive UTC (see app/clock.py).
     Displaying it raw showed class times several hours off, so templates
     must use this filter instead of calling .strftime() directly.
     """
@@ -80,7 +81,44 @@ templates.env.globals["DEFAULT_GEOFENCE_LON"] = settings.DEFAULT_GEOFENCE_LON
 templates.env.globals["DEFAULT_GEOFENCE_RADIUS_M"] = settings.DEFAULT_GEOFENCE_RADIUS_M
 templates.env.globals["INSTITUTION_NAME"] = settings.INSTITUTION_NAME
 
-app = FastAPI(title="Adsum", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Startup work, as a lifespan handler rather than @app.on_event.
+
+    `on_event` is deprecated in FastAPI and warns on every boot. It also has
+    no shutdown-ordering guarantee, which matters here because startup
+    migrates the schema: if that ever needs to be undone or a connection
+    closed in order, a context manager can express it and a pair of event
+    callbacks cannot.
+
+    The imports inside stay lazy on purpose. app.migrate and app.seed both
+    import app.models, and app.routes imports this module, so importing them
+    at the top of this file closes a cycle.
+    """
+    # Before init_db: create_all() only adds MISSING TABLES, so it silently
+    # does nothing about a migration that adds a column to an existing one --
+    # which is most of them. Migrating first also stops create_all racing a
+    # migration that creates a table.
+    from app.migrate import apply_pending
+    apply_pending()
+    await init_db()
+    from app.seed import ensure_admin, seed_demo_data
+    if settings.SEED_DEMO:
+        await seed_demo_data()   # demo institution/course/students (dev only)
+    else:
+        await ensure_admin()     # production: create admin from .env on an empty DB
+
+    yield
+    # Nothing to tear down: the engine's pool is disposed by the event loop
+    # shutdown, and a half-written request is better abandoned than finished.
+
+
+# VERSION is the one place the number lives. It said 0.1.0 while the repository
+# was tagged v1.0.0 and the README described a released tool, so the OpenAPI
+# document and the git history disagreed about what this was.
+VERSION = "1.0.1"
+
+app = FastAPI(title="Adsum", version=VERSION, lifespan=lifespan)
 
 # Requests that change state and are authenticated only by a cookie need a
 # second line of defence behind SameSite=Lax, because SameSite is a browser
@@ -174,22 +212,6 @@ async def block_cross_site_writes(request: Request, call_next):
 
 # Mount static files
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    # Before init_db: create_all() only adds MISSING TABLES, so it silently
-    # does nothing about a migration that adds a column to an existing one --
-    # which is most of them. Migrating first also stops create_all racing a
-    # migration that creates a table.
-    from app.migrate import apply_pending
-    apply_pending()
-    await init_db()
-    from app.seed import ensure_admin, seed_demo_data
-    if settings.SEED_DEMO:
-        await seed_demo_data()   # demo institution/course/students (dev only)
-    else:
-        await ensure_admin()     # production: create admin from .env on an empty DB
 
 
 @app.get("/healthz")

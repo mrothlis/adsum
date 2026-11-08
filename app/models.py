@@ -20,6 +20,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from app.clock import utc_now
+
 
 class Base(DeclarativeBase):
     pass
@@ -329,7 +331,7 @@ class LtiNonce(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     consumer_key: Mapped[str] = mapped_column(String(200), nullable=False)
     nonce: Mapped[str] = mapped_column(String(200), nullable=False)
-    seen_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow,
+    seen_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utc_now,
                                                  index=True)
 
 
@@ -377,7 +379,7 @@ class DeviceBinding(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), nullable=False)
     student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), nullable=False)
-    claimed_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    claimed_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utc_now)
     # The address the claim came from, for an instructor investigating a
     # disputed binding. No user agent and no device fingerprint: neither adds
     # anything the instructor can act on, and both would be a new personal
@@ -414,7 +416,7 @@ class ClaimConflict(Base):
     student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), nullable=False)
     session_id: Mapped[Optional[int]] = mapped_column(ForeignKey("sessions.id"))
     attempted_at: Mapped[dt.datetime] = mapped_column(DateTime,
-                                                      default=dt.datetime.utcnow)
+                                                      default=utc_now)
     source_ip: Mapped[Optional[str]] = mapped_column(String(50))
     reviewed_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime)
 

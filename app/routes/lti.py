@@ -27,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import hash_password, set_session_cookie
+from app.clock import utc_now
 from app.config import settings
 from app.database import get_db
 from app.models import (
@@ -160,7 +161,7 @@ async def lti_launch(request: Request, db: AsyncSession = Depends(get_db)):
                             "again from inside D2L.</p>", status_code=403)
     # Only the window matters, so old rows are swept rather than kept.
     await db.execute(delete(LtiNonce).where(
-        LtiNonce.seen_at < dt.datetime.utcnow() - dt.timedelta(minutes=15)))
+        LtiNonce.seen_at < utc_now() - dt.timedelta(minutes=15)))
 
     if params.get("lti_message_type") not in (None, "", "basic-lti-launch-request"):
         log.warning("LTI launch rejected: unexpected message type %r",
