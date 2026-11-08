@@ -273,6 +273,115 @@ def main() -> int:
         check("the revision is untouched", version_of(db5) == "0000deadbeef")
         check("no backup taken", len(backups_for(db5)) == 0)
 
+        print("\nCase 6: the duplicate-instructor migration carries its data")
+        # This case exists because the fix it covers is a data-carrying
+        # migration, and those can only ever run against a database that
+        # already exists. A subtlety makes that easy to get wrong when
+        # testing: an EMPTY database is built from the current models and
+        # stamped at head, so `alembic upgrade <an older revision>` on a
+        # fresh file is silently ignored and lands at head with every index
+        # already present. A probe written that way reports "the migration
+        # did nothing" and it is right, because there was nothing to do.
+        #
+        # So the older state has to be constructed deliberately: drop the
+        # index AND wind the version row back.
+        db6 = os.path.join(tmp, "case6.db")
+        env6 = dict(env)
+        env6["DATABASE_URL"] = f"sqlite+aiosqlite:///{db6.replace(os.sep, '/')}"
+        subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"],
+                       cwd=BASE, env=env6, capture_output=True, text=True,
+                       check=False)
+        con = sqlite3.connect(db6)
+        con.execute("PRAGMA foreign_keys=ON")
+        con.execute("DROP INDEX IF EXISTS "
+                    "uq_enrollments_one_instructor_row_per_course")
+        con.execute("UPDATE alembic_version SET version_num='a7f3c1d05b84'")
+        con.commit()
+
+        def seed(table, **given):
+            """Fill NOT NULL columns that have no default, so this does not
+            depend on remembering the whole schema."""
+            row = dict(given)
+            for _c, name, ctype, notnull, dflt, pk in con.execute(
+                    f"PRAGMA table_info({table})"):
+                if name in row or pk or not notnull or dflt is not None:
+                    continue
+                t = (ctype or "").upper()
+                row[name] = 0 if any(k in t for k in
+                                     ("INT", "REAL", "NUM", "FLOAT")) else "x"
+            con.execute(
+                f"INSERT INTO {table} ({','.join(row)}) "
+                f"VALUES ({','.join('?' * len(row))})", tuple(row.values()))
+
+        seed("institutions", id=1, name="T")
+        seed("instructors", id=1, name="A", email="a@x.test")
+        seed("courses", id=1, institution_id=1, name="C", course_code="C1")
+        for _ in range(3):
+            seed("course_enrollments", course_id=1, instructor_id=1,
+                 role="instructor")
+        seed("students", id=1, name="S")
+        seed("course_enrollments", course_id=1, student_id=1, role="student")
+        con.commit()
+        dupes_before = con.execute(
+            "SELECT COUNT(*) FROM course_enrollments "
+            "WHERE instructor_id IS NOT NULL").fetchone()[0]
+        con.close()
+        # Three identical rows were accepted, which is the defect itself:
+        # uq_course_student(course_id, student_id) looks like it constrains
+        # this table but an instructor row has student_id NULL, and every
+        # NULL is distinct in a SQLite unique index.
+        check("duplicate instructor rows are possible before the migration",
+              dupes_before == 3, f"got {dupes_before}")
+
+        r = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"],
+                           cwd=BASE, env=env6, capture_output=True, text=True,
+                           check=False)
+        check("the migration applies", r.returncode == 0,
+              (r.stderr or "")[-200:])
+        check("and says what it removed",
+              "removing 2 duplicate instructor enrollment" in
+              (r.stdout or "") + (r.stderr or ""))
+
+        con = sqlite3.connect(db6)
+        con.execute("PRAGMA foreign_keys=ON")
+        rows = con.execute(
+            "SELECT id FROM course_enrollments "
+            "WHERE instructor_id IS NOT NULL").fetchall()
+        check("exactly one instructor row survives", len(rows) == 1,
+              f"got {rows}")
+        check("and it is the lowest id, which holds any dropped_at history",
+              bool(rows) and rows[0][0] == 1, f"got {rows}")
+        check("the student enrollment is untouched",
+              con.execute("SELECT COUNT(*) FROM course_enrollments "
+                          "WHERE student_id IS NOT NULL").fetchone()[0] == 1)
+        try:
+            con.execute("INSERT INTO course_enrollments "
+                        "(course_id, instructor_id, role) "
+                        "VALUES (1, 1, 'instructor')")
+            con.commit()
+            check("a duplicate is now refused", False, "it was accepted")
+        except sqlite3.IntegrityError:
+            check("a duplicate is now refused", True)
+        # A second instructor on the same course is legitimate co-teaching
+        # and must still work: the index is on the pair, not on course_id.
+        seed("instructors", id=2, name="B", email="b@x.test")
+        try:
+            con.execute("INSERT INTO course_enrollments "
+                        "(course_id, instructor_id, role) "
+                        "VALUES (1, 2, 'instructor')")
+            con.commit()
+            check("a co-instructor on the same course is still allowed", True)
+        except sqlite3.IntegrityError as exc:
+            check("a co-instructor on the same course is still allowed",
+                  False, str(exc))
+        con.close()
+
+        r = subprocess.run([sys.executable, "-m", "alembic", "downgrade",
+                            "a7f3c1d05b84"], cwd=BASE, env=env6,
+                           capture_output=True, text=True, check=False)
+        check("the downgrade is clean", r.returncode == 0,
+              (r.stderr or "")[-200:])
+
         print("-" * 52)
         for leftover in (backups_for(db1) + backups_for(db3)
                          + backups_for(db4) + backups_for(db5)):

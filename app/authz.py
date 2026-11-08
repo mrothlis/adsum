@@ -32,11 +32,15 @@ async def enrolled_student(db: AsyncSession, course_id: int, student_id: int):
     """
     if not isinstance(student_id, int) or student_id <= 0:
         return None
+    # .first(), for the same reason as owned_course below: an authorization
+    # check must not be able to raise. uq_course_student does constrain this
+    # pair, so a duplicate should be impossible here, but "should be
+    # impossible" is what was believed about duplicate instructor rows too.
     on_roster = (await db.execute(select(CourseEnrollment.id).where(
         CourseEnrollment.course_id == course_id,
         CourseEnrollment.student_id == student_id,
         *active_roster(),
-    ))).scalar_one_or_none()
+    ).limit(1))).scalars().first()
     return await db.get(Student, student_id) if on_roster else None
 
 
@@ -74,11 +78,18 @@ async def owned_course(db: AsyncSession, user: dict | None, course_id: int):
     course = await db.get(Course, course_id)
     if not course:
         return None
+    # .first() on a limited query, NOT scalar_one_or_none(). A duplicate
+    # enrollment row made scalar_one_or_none() raise MultipleResultsFound,
+    # which turned every instructor route for that course into a permanent
+    # 500 with no way to repair it from the interface. A unique index now
+    # prevents new duplicates, but an authorization check must never be the
+    # thing that takes a page down, and any database written before that
+    # index existed may still hold a pair.
     enrolled = (await db.execute(select(CourseEnrollment.id).where(
         CourseEnrollment.course_id == course_id,
         CourseEnrollment.instructor_id == user.get("instructor_id"),
         CourseEnrollment.role == "instructor",
-    ))).scalar_one_or_none()
+    ).limit(1))).scalars().first()
     return course if enrolled else None
 
 

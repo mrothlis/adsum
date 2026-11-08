@@ -178,6 +178,30 @@ class CourseEnrollment(Base):
     __tablename__ = "course_enrollments"
     __table_args__ = (
         UniqueConstraint("course_id", "student_id", name="uq_course_student"),
+        # The instructor equivalent, which was missing, and the reason it was
+        # missing is worth stating: uq_course_student above looks like it
+        # covers this table, but an instructor row carries student_id NULL,
+        # and in SQLite every NULL is distinct in a unique index. So that
+        # constraint silently permitted unlimited duplicate instructor rows
+        # on one course. The same NULL subtlety that made a NOT IN orphan
+        # sweep report zero while fourteen orphans sat in the table.
+        #
+        # The consequence was not cosmetic. app/routes/lti.py checks for an
+        # existing enrollment with a SELECT and then INSERTs, with no lock, so
+        # two simultaneous launches -- one impatient double-click on a D2L
+        # link -- produced two rows. authz.owned_course then raised
+        # MultipleResultsFound, and EVERY instructor route for that course
+        # returned 500 permanently, with nothing in the interface able to
+        # repair it.
+        #
+        # Partial, because instructor_id is NULL on every student row.
+        Index(
+            "uq_enrollments_one_instructor_row_per_course",
+            "course_id",
+            "instructor_id",
+            unique=True,
+            sqlite_where=text("instructor_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
