@@ -42,6 +42,12 @@ def _round_half_up(value: float) -> int:
 
 PRESENT_STATUSES = ("present", "late")
 EXCUSED_STATUS = "excused"
+# Named because "late" appeared as a bare literal in a dozen places, including
+# inside the per-student counting queries that app/attendance.py now owns.
+# PRESENT_STATUSES minus this one is the set that earns full credit, so both
+# follow from one definition rather than from matching string literals.
+LATE_STATUS = "late"
+FULL_CREDIT_STATUSES = tuple(s for s in PRESENT_STATUSES if s != LATE_STATUS)
 
 # Starting point for a brand-new course, nothing more. Attendance policy is a
 # syllabus decision belonging to the instructor, so it is NOT an install

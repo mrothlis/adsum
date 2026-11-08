@@ -19,6 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app import ledger
+from app.attendance import (
+    NO_ATTENDANCE,
+    counts_by_session,
+    status_matrix,
+    tally_by_student,
+)
 from app.auth import (
     clear_session_cookie,
     get_current_user,
@@ -55,6 +61,7 @@ from app.scoring import (
     DEFAULT_LATE_CREDIT_PERCENT,
     DEFAULT_LATE_THRESHOLD_MINUTES,
     EXCUSED_STATUS,
+    LATE_STATUS,
     PRESENT_STATUSES,
     policy_for,
     score,
@@ -610,21 +617,21 @@ async def _compute_alerts(db: AsyncSession, course: Course) -> list:
     sessions = (await db.execute(sess_stmt)).scalars().all()
     session_ids = [s.id for s in sessions]
 
+    # Two queries for the whole course. This loop previously ran two per
+    # student and loaded full ORM objects to read two columns off them.
+    matrix = await status_matrix(db, session_ids)
+    tallies = await tally_by_student(db, session_ids)
+
     for student in students:
-        att_stmt = select(AttendanceRecord).where(
-            AttendanceRecord.student_id == student.id,
-            AttendanceRecord.session_id.in_(session_ids),
-            AttendanceRecord.status.in_(["present", "late"]),
-        )
-        records = (await db.execute(att_stmt)).scalars().all()
-        attended_session_ids = {r.session_id for r in records}
-        attended = len(attended_session_ids)
-        # Split by status: a late arrival may be worth only part of a class,
-        # so present and late cannot be collapsed into one count any more.
-        _late = len({r.session_id for r in records if r.status == "late"})
-        _present = max(0, attended - _late)
-        _exc = await _excused_count(db, student.id, session_ids)
-        pct = score(total_sessions, _present, _late, _exc,
+        t = tallies.get(student.id, NO_ATTENDANCE)
+        statuses = matrix.get(student.id, {})
+        # Sessions the student was in the room for, which drives the
+        # consecutive-absence streak below. Late counts as being there: a
+        # student who arrived late did not miss the class, whatever their
+        # credit for it.
+        attended_session_ids = {sid for sid, status in statuses.items()
+                                if status in PRESENT_STATUSES}
+        pct = score(total_sessions, t.present, t.late, t.excused,
                     _policy.allowed_unexcused, _policy.late_credit_percent).pct
 
         # Consecutive absences (from most recent)
@@ -640,7 +647,7 @@ async def _compute_alerts(db: AsyncSession, course: Course) -> list:
                 "student": student,
                 "course": course,
                 "pct": pct,
-                "attended": attended,
+                "attended": t.attended,
                 "total": total_sessions,
                 "consecutive_absences": consecutive,
             })
@@ -658,25 +665,15 @@ async def _student_stats(db: AsyncSession, students, sessions, _policy) -> list:
     """
     total_sessions = len(sessions)
     session_ids = [s.id for s in sessions]
+    # One query for the whole course, instead of three per student. The
+    # queries this replaces counted present-or-late, counted late again, and
+    # subtracted; Tally names its fields for what they hold so no call site
+    # has to do that arithmetic. See app/attendance.py for why it mattered.
+    tallies = await tally_by_student(db, session_ids)
     out = []
     for s in students:
-        if session_ids:
-            att_stmt = select(func.count(AttendanceRecord.id)).where(
-                AttendanceRecord.student_id == s.id,
-                AttendanceRecord.session_id.in_(session_ids),
-                AttendanceRecord.status.in_(["present", "late"]),
-            )
-            attended = (await db.execute(att_stmt)).scalar() or 0
-            _late = (await db.execute(select(func.count(AttendanceRecord.id)).where(
-                AttendanceRecord.student_id == s.id,
-                AttendanceRecord.session_id.in_(session_ids),
-                AttendanceRecord.status == "late",
-            ))).scalar() or 0
-        else:
-            attended = 0
-            _late = 0
-        _present = max(0, attended - _late)
-        _exc = await _excused_count(db, s.id, session_ids)
+        t = tallies.get(s.id, NO_ATTENDANCE)
+        _present, _late, _exc = t.present, t.late, t.excused
         _sc = score(total_sessions, _present, _late, _exc,
                     _policy.allowed_unexcused, _policy.late_credit_percent)
         # Two different percentages, computed here rather than in the
@@ -692,7 +689,7 @@ async def _student_stats(db: AsyncSession, students, sessions, _policy) -> list:
         # counted a late arrival as a full class.
         _raw = score(total_sessions, _present, _late, _exc, 0,
                      _policy.late_credit_percent)
-        out.append({"student": s, "attended": attended, "total": total_sessions,
+        out.append({"student": s, "attended": t.attended, "total": total_sessions,
                     "late": _late,
                     "pct": _sc.pct, "raw_pct": _raw.pct,
                     "has_sessions": total_sessions > 0,
@@ -1296,19 +1293,16 @@ async def analytics(request: Request, course_id: int, db: AsyncSession = Depends
     sess_stmt = _graded_sessions_stmt(course_id)
     sessions = (await db.execute(sess_stmt)).scalars().all()
 
-    # Per-session attendance counts
-    session_labels = []
-    session_counts = []
-    for s in sessions:
-        ct = (await db.execute(
-            select(func.count(AttendanceRecord.id)).where(
-                AttendanceRecord.session_id == s.id,
-                AttendanceRecord.status.in_(["present", "late"]),
-            )
-        )).scalar() or 0
-        label = _to_local(s.started_at).strftime("%m/%d") if s.started_at else "?"
-        session_labels.append(label)
-        session_counts.append(ct)
+    # Per-session attendance counts, one query rather than one per session.
+    # A session nobody attended has no rows, so it is missing from the dict
+    # and must read as 0 rather than being dropped from the chart: a class
+    # with no attendance is exactly the bar worth seeing.
+    counts = await counts_by_session(db, [s.id for s in sessions])
+    session_labels = [
+        _to_local(s.started_at).strftime("%m/%d") if s.started_at else "?"
+        for s in sessions
+    ]
+    session_counts = [counts.get(s.id, 0) for s in sessions]
 
     # Enrolled count — the active roster only, so the "expected" line on the
     # chart is not inflated by students who dropped.
@@ -1368,31 +1362,33 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
     writer.writerow(header)
 
     session_ids = [s.id for s in sessions]
+    # Two queries for the whole spreadsheet. This loop used to issue one
+    # query per student PER SESSION: a 45-student course with 30 meetings
+    # made 1,350 round trips, and the cost grows with the square of the
+    # course. A 300-student course took about four seconds, during which an
+    # instructor on a classroom machine sees nothing happen.
+    matrix = await status_matrix(db, session_ids)
+    tallies = await tally_by_student(db, session_ids)
+
+    # The CSV says "Late"/"Excused" rather than the stored status verbatim,
+    # so the label is spelled out once here instead of inside the loop.
+    labels = {LATE_STATUS: "Late", EXCUSED_STATUS: "Excused"}
+
     for student in students:
         row = [student.student_id_number, student.name]
-        present_count = 0
-        excused_count = 0
-        late_count = 0
+        statuses = matrix.get(student.id, {})
         for sid in session_ids:
-            rec = (await db.execute(
-                select(AttendanceRecord).where(
-                    AttendanceRecord.session_id == sid,
-                    AttendanceRecord.student_id == student.id,
-                )
-            )).scalar_one_or_none()
-            if rec and rec.status == "late":
-                row.append("Late")
-                late_count += 1
-            elif rec and rec.status in PRESENT_STATUSES:
-                row.append(rec.status.capitalize())
-                present_count += 1
-            elif rec and rec.status == EXCUSED_STATUS:
-                row.append("Excused")
-                excused_count += 1
-            else:
+            status = statuses.get(sid)
+            if status is None:
+                # No record at all. An absence is the absence of a row, never
+                # a row saying "absent".
                 row.append("Absent")
-        row.append(str(present_count + late_count))
-        _sc = score(len(sessions), present_count, late_count, excused_count,
+            else:
+                row.append(labels.get(status, status.capitalize()))
+
+        t = tallies.get(student.id, NO_ATTENDANCE)
+        row.append(str(t.attended))
+        _sc = score(len(sessions), t.present, t.late, t.excused,
                     _policy.allowed_unexcused, _policy.late_credit_percent)
         row.append(str(_sc.excused))
         row.append(str(_sc.unexcused))
@@ -1620,18 +1616,6 @@ async def edit_student(request: Request, course_id: int, student_id: int,
     await db.commit()
     return RedirectResponse(f"/instructor/course/{course_id}", status_code=302)
 
-
-
-async def _excused_count(db: AsyncSession, student_id: int, session_ids: list) -> int:
-    """How many of this course's sessions the student was excused from."""
-    if not session_ids:
-        return 0
-    return (await db.execute(
-        select(func.count(AttendanceRecord.id)).where(
-            AttendanceRecord.student_id == student_id,
-            AttendanceRecord.session_id.in_(session_ids),
-            AttendanceRecord.status == EXCUSED_STATUS,
-        ))).scalar() or 0
 
 
 @router.post("/course/{course_id}/restore-from-d2l")
@@ -2229,33 +2213,16 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
     header.append("End-of-Line Indicator")
     writer.writerow(header)
 
-    # Per-session status lookup, built once rather than per student.
-    status_by_student: dict[int, dict[int, str]] = {}
-    if detail and session_ids:
-        recs = (await db.execute(select(AttendanceRecord).where(
-            AttendanceRecord.session_id.in_(session_ids)))).scalars().all()
-        for r in recs:
-            status_by_student.setdefault(r.student_id, {})[r.session_id] = r.status
+    # Per-session statuses and per-student counts, one query each for the
+    # whole course. This loop previously ran three counting queries per
+    # student on top of the matrix below, and loaded whole ORM objects to
+    # build it when it only ever reads three columns.
+    status_by_student = await status_matrix(db, session_ids) if detail else {}
+    tallies = await tally_by_student(db, session_ids)
 
     for student in students:
-        if session_ids:
-            att_stmt = select(func.count(AttendanceRecord.id)).where(
-                AttendanceRecord.student_id == student.id,
-                AttendanceRecord.session_id.in_(session_ids),
-                AttendanceRecord.status.in_(["present", "late"]),
-            )
-            attended = (await db.execute(att_stmt)).scalar() or 0
-            _late = (await db.execute(select(func.count(AttendanceRecord.id)).where(
-                AttendanceRecord.student_id == student.id,
-                AttendanceRecord.session_id.in_(session_ids),
-                AttendanceRecord.status == "late",
-            ))).scalar() or 0
-        else:
-            attended = 0
-            _late = 0
-
-        _exc = await _excused_count(db, student.id, session_ids)
-        sc = score(total_sessions, max(0, attended - _late), _late, _exc,
+        t = tallies.get(student.id, NO_ATTENDANCE)
+        sc = score(total_sessions, t.present, t.late, t.excused,
                    _policy.allowed_unexcused, _policy.late_credit_percent)
         pct = sc.pct
 
