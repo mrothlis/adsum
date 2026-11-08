@@ -38,7 +38,7 @@
                        autocapitalize="characters"
                        autocorrect="off"
                        spellcheck="false"
-                       inputmode="latin"
+                       inputmode="text"
                        aria-describedby="code-help"
                        placeholder="{{ 'X' * code_length }}"
                        required
@@ -74,7 +74,14 @@
     }
     .code-input::placeholder {
         letter-spacing: 0.35em;
-        opacity: 0.35;
+        /* Placeholder text is text, and WCAG 1.4.3 applies to it. The old
+           opacity: 0.35 took #757575 from 4.6:1 down to a measured 1.56:1
+           against the field, which is the worst contrast anywhere in the
+           app and sat on the page a student uses when their camera has
+           already failed them. Firefox applies its own default placeholder
+           opacity, so opacity must be set explicitly rather than omitted. */
+        color: var(--color-text-muted);
+        opacity: 1;
     }
     .btn-block {
         display: block;

@@ -168,10 +168,26 @@ unlike the studies exception at 99.31(a)(6)(iii)(C).
 
 ## 6. Accessibility, which is the weakest part of this proposal
 
-**State of play: Adsum has not been formally audited for accessibility and
-there is no VPAT or Accessibility Conformance Report.** That is the honest
-answer and it should drive a condition of approval rather than a claim of
-compliance.
+**State of play: an automated audit has been run and everything it found has
+been fixed. There is still no VPAT or Accessibility Conformance Report, and no
+screen reader testing has been done.** That is the honest answer, and it
+should drive a condition of approval rather than a claim of compliance.
+
+What was done: axe-core 4.10.2 against the running application across the
+WCAG 2.0/2.1 A and AA rulesets, plus checks for the things axe cannot test
+(contrast with alpha compositing, focus visibility under real `Tab`
+keypresses, and reflow at 320 CSS pixels). Three defects were found and fixed:
+placeholder text at 1.56:1 contrast on the typed-code page, an invalid
+`inputmode` value that silently disabled the mobile keyboard hint, and
+fourteen decorative emoji announced by screen readers. Two status emoji that
+carried meaning were given visually hidden text alternatives rather than being
+hidden. All pages now report zero axe violations, and the checks run on every
+push via `scripts/test_accessibility.py`.
+
+**Automated tooling catches roughly a third of WCAG failures**, so this is
+emphatically not a conformance claim. Full detail, including two measurement
+errors made during the audit and corrected, is in
+[ACCESSIBILITY.md](ACCESSIBILITY.md).
 
 The obligation is real and dated:
 
@@ -200,21 +216,26 @@ A tool launched inside your LMS is in scope. There is no open source
 exemption, and self hosting concentrates the obligation rather than reducing it
 because there is no vendor to hold responsible.
 
-**What is already true**, and would need confirming by a real audit rather than
-taken as a claim: student pages are plain HTML with no JavaScript framework and
-no third party scripts, form inputs carry labels and `aria-describedby` help
-text, and the typed code fallback exists precisely so that a student whose
-camera does not work, or who cannot use one, has a route in that needs no
-camera and no app.
+**What is verified**: zero axe violations on every page tested, every student
+input labelled, a visible 3px focus indicator on every control under real
+keyboard navigation, no horizontal scrolling at 320 CSS pixels, and all
+measured contrast ratios at or above the AA threshold. Student pages are plain
+HTML with no JavaScript framework and no third party scripts, which is also
+what makes them cheap to audit and cheap to fix. The typed code fallback
+exists so that a student whose camera does not work, or who cannot use one,
+has a route in that needs no camera and no app.
 
-**What is unexamined**: screen reader behaviour end to end, keyboard only
-operation, colour contrast, the live updating session page, and the projector
-view.
+**What is unexamined**: screen reader behaviour end to end with NVDA, JAWS,
+VoiceOver or TalkBack; testing by anyone who actually uses assistive
+technology; the error and empty states of each page; the analytics page, which
+draws charts on a `canvas` element and has known limits; the projector view at
+lecture-theatre distance; and text spacing overrides (WCAG 1.4.12).
 
-**Recommended condition of approval:** a WCAG 2.1 AA audit of the student
-facing pages before any use beyond a pilot, with findings fixed or an
-equivalent facilitation documented. The entire student facing surface is three
-pages (`app/templates/student/`), so this is a small audit. We would rather you impose that condition than
+**Recommended condition of approval:** a WCAG 2.1 AA review of the three
+student facing pages by your accessibility office, including screen reader
+testing, before any use beyond a pilot. The entire student facing surface is
+three pages (`app/templates/student/`), so this is a small piece of work, and
+the automated findings are already cleared out of the way. We would rather you impose that condition than
 approve the tool on an unverified claim.
 
 ---
@@ -402,6 +423,8 @@ For a reviewer who wants to verify rather than read the whole thing:
 | Security headers and CSP | `app/main.py` |
 | What security properties are claimed and tested | `scripts/test_security.py` |
 | Attacks considered | `SECURITY.md` |
+| Accessibility audit, findings and gaps | `docs/ACCESSIBILITY.md` |
+| Accessibility checks run on every push | `scripts/test_accessibility.py` |
 | Planned 1.3 protocol work and every required validation | `docs/LTI-1.3-PLAN.md` |
 | Administrator install procedure | `docs/BRIGHTSPACE-ADMIN.md` |
 

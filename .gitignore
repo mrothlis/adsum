@@ -11,6 +11,11 @@ server.log
 # attempting it. Local state about one machine's database, never shared.
 .migration-failed
 
+# Throwaway working files: audit tooling, probe scripts, captured JSON.
+# Nothing in here is part of the application.
+scratch/
+app/static/axe-audit-tmp.js
+
 # python
 __pycache__/
 *.pyc

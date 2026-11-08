@@ -690,14 +690,23 @@ Install the development dependencies first, otherwise `ruff` is not present:
 pip install -r requirements-dev.txt
 ```
 
-There are ten scripts. **Three need no server:**
+There are twelve scripts. **Four need no server:**
 
 ```bash
 python scripts/test_scoring.py           # the grade arithmetic
 python scripts/test_migrations.py        # startup backs up, migrates, or refuses
+python scripts/test_accessibility.py     # the automatable part of WCAG 2.1 AA
 python scripts/verify_install.py         # clean-install check
 ruff check app scripts run.py backup_db.py alembic/env.py
 ```
+
+`test_accessibility.py` locks in the fixes from a browser-based axe-core
+audit: contrast ratios (including placeholder opacity), a focus indicator that
+is actually drawn, labels on every student input, valid `inputmode` values,
+decorative emoji hidden from screen readers, and the page shell. It covers the
+roughly one third of WCAG that can be automated and says so in its own output.
+It is **not** a conformance claim: see [ACCESSIBILITY.md](ACCESSIBILITY.md) for
+what was audited, what was fixed, and what still needs a human.
 
 `test_migrations.py` exercises every path through startup migration against
 throwaway databases: empty, already current, tables with no version, genuinely

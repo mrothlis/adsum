@@ -31,7 +31,7 @@
 
 {% if alerts %}
 <div class="card alert-card">
-    <h2>⚠️ Early Alerts</h2>
+    <h2><span aria-hidden="true">⚠️</span> Early Alerts</h2>
     <div class="alert-list">
         {% for a in alerts %}
         <div class="alert-item {% if a.consecutive_absences >= 3 %}alert-critical{% else %}alert-warning{% endif %}">

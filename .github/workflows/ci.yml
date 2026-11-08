@@ -80,6 +80,14 @@ jobs:
       # failing paths -- including that a failing migration does NOT take a
       # fresh backup on every restart, which would prune every good backup
       # within minutes of the launcher's retry loop.
+      # WCAG 2.1 AA is a hard legal requirement for a public institution
+      # (28 CFR 35.200(b); compliance date 26 Apr 2027 for larger entities).
+      # This locks in the defects found by the browser audit so they cannot
+      # come back silently. It is not a conformance claim; see
+      # docs/ACCESSIBILITY.md.
+      - name: Accessibility regressions
+        run: python scripts/test_accessibility.py
+
       - name: Startup migrations back up, apply, and refuse safely
         env:
           DATABASE_URL: sqlite+aiosqlite:///./ci-startup.db

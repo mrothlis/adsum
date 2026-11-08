@@ -87,7 +87,7 @@ FAILED=""
 #
 # test_scoring and test_migrations need no server. They are run here anyway
 # so this one command covers every suite CI runs, wherever CI runs it.
-for script in test_scoring test_migrations \
+for script in test_scoring test_migrations test_accessibility \
               smoke_test test_isolation test_admin_separation test_admin_page \
               test_security test_robustness test_roster_sync test_standalone; do
   printf '%-26s ' "$script"

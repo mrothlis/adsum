@@ -184,7 +184,10 @@
             <tbody>
             {% for c in checks %}
                 <tr>
-                    <td style="width:2rem;">{{ "✅" if c.ok else "⚠️" }}</td>
+                    <td style="width:2rem;">
+                        <span aria-hidden="true">{{ "\u2705" if c.ok else "\u26a0\ufe0f" }}</span>
+                        <span class="sr-only">{{ "Pass" if c.ok else "Needs attention" }}</span>
+                    </td>
                     <td><strong>{{ c.name }}</strong></td>
                     <td class="text-muted">{{ c.detail }}</td>
                 </tr>

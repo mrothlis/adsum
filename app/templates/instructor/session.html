@@ -174,7 +174,7 @@ body.projecting .bigcount-label { font-size: clamp(1rem, 2vw, 2.2rem); }
 
 {% if not session.ended_at %}
 <div id="conn-banner" class="conn-banner" role="alert" hidden>
-    ⚠️ Connection lost — students cannot check in right now.
+    <span aria-hidden="true">⚠️</span> Connection lost — students cannot check in right now.
     <small id="conn-banner-detail">Leave the code up; trying to reconnect…</small>
 </div>
 {% endif %}
@@ -183,7 +183,7 @@ body.projecting .bigcount-label { font-size: clamp(1rem, 2vw, 2.2rem); }
     <!-- QR Code Panel -->
     <div class="card qr-panel">
         {% if session.ended_at %}
-        <h2>✔️ Session Ended</h2>
+        <h2><span aria-hidden="true">✔️</span> Session Ended</h2>
         <p class="text-muted text-center">
             Ended {{ session.ended_at | localtime('%-I:%M %p') }}.
             You can still add or remove students below; the gradebook export
@@ -194,7 +194,7 @@ body.projecting .bigcount-label { font-size: clamp(1rem, 2vw, 2.2rem); }
         </div>
         {% else %}
         <div class="qr-heading-row">
-            <h2 style="margin:0;">📱 Scan to Check In</h2>
+            <h2 style="margin:0;"><span aria-hidden="true">📱</span> Scan to Check In</h2>
             <span id="conn-chip" class="conn-chip" data-state="warn" aria-live="polite">
                 <span class="dot" aria-hidden="true"></span><span id="conn-text">Connecting…</span>
             </span>
@@ -210,7 +210,7 @@ body.projecting .bigcount-label { font-size: clamp(1rem, 2vw, 2.2rem); }
         </div>
         <p class="text-muted text-center" id="rotation-note" style="margin-top:0.5rem;">QR code rotates every {{ qr_rotation_seconds }} seconds</p>
         <div class="session-controls">
-            <button type="button" class="btn btn-outline" id="project-toggle">🖥️ Project this</button>
+            <button type="button" class="btn btn-outline" id="project-toggle" aria-pressed="false"><span aria-hidden="true">🖥️</span> Project this</button>
             <form method="post" action="/instructor/session/{{ session.id }}/stop"
                   onsubmit="return confirm('End this attendance session?')" style="display:inline;">
                 <button type="submit" class="btn btn-danger">End Session</button>
@@ -221,7 +221,7 @@ body.projecting .bigcount-label { font-size: clamp(1rem, 2vw, 2.2rem); }
 
     <!-- Attendance Panel -->
     <div class="card attendance-panel" id="roster-card">
-        <h2 style="margin-top:0;">✅ Attendance</h2>
+        <h2 style="margin-top:0;"><span aria-hidden="true">✅</span> Attendance</h2>
 
         <!-- The default readout is a count, not a list of names. -->
         <div class="bigcount" id="bigcount">
@@ -252,7 +252,7 @@ body.projecting .bigcount-label { font-size: clamp(1rem, 2vw, 2.2rem); }
              a title= tooltip alone is invisible on touch devices. -->
         <p id="unverified-note" class="text-muted" style="font-size:0.85rem;margin:0.75rem 0 0.5rem;
            {% if records | selectattr('student') | rejectattr('student.d2l_verified') | list | length == 0 %}display:none;{% endif %}">
-            ⚠️ Not matched to the D2L roster. Either they added the course since your
+            <span aria-hidden="true">⚠️</span> Not matched to the D2L roster. Either they added the course since your
             last classlist import, or they should not be in this course. Import the
             classlist, or check the student's D2L username, before exporting grades.
         </p>
@@ -273,7 +273,7 @@ body.projecting .bigcount-label { font-size: clamp(1rem, 2vw, 2.2rem); }
             <tbody id="attendance-body">
                 {% for r in records %}
                 <tr>
-                    <td>{{ r.student.name if r.student else 'Unknown' }}{% if r.student and not r.student.d2l_verified %} <span title="Not in D2L roster" style="color:#f59e0b;">⚠️</span>{% endif %}</td>
+                    <td>{{ r.student.name if r.student else 'Unknown' }}{% if r.student and not r.student.d2l_verified %} <span style="color:#f59e0b;"><span aria-hidden="true">⚠️</span><span class="sr-only">Not in D2L roster</span></span>{% endif %}</td>
                     {% if session.ended_at %}<td>{{ r.student.student_id_number if r.student else '' }}</td>{% endif %}
                     <td>{{ r.checked_in_at | localtime('%H:%M:%S') }}</td>
                     <td>
@@ -656,12 +656,21 @@ function connectSSE() {
     if (!btn) return;
     btn.addEventListener('click', () => {
         const on = document.body.classList.toggle('projecting');
-        btn.textContent = on ? '↩ Exit projection' : '🖥️ Project this';
+        // Rebuild the markup rather than assigning textContent: that would
+        // drop the aria-hidden wrapper and start announcing the emoji.
+        btn.innerHTML = on
+            ? '<span aria-hidden="true">↩</span> Exit projection'
+            : '<span aria-hidden="true">🖥️</span> Project this';
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && document.body.classList.contains('projecting')) {
             document.body.classList.remove('projecting');
-            btn.textContent = '🖥️ Project this';
+            // Same markup as the click handler above. Two code paths set this
+            // label, and fixing only the obvious one left Escape regressing
+            // both the hidden emoji and the pressed state.
+            btn.innerHTML = '<span aria-hidden="true">🖥️</span> Project this';
+            btn.setAttribute('aria-pressed', 'false');
         }
     });
 })();
