@@ -2182,11 +2182,31 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
     session_ids = [s.id for s in sessions]
 
     # Refuse to hand D2L a file that can only destroy the record.
-    # If this course has no sessions, every student would import as 0 and the
-    # Attendance Detail ledger would be blanked -- wiping history that D2L is
-    # holding. This is the failure mode after a reset or a lost database, so
-    # it is blocked outright rather than warned about.
+    # If this course has no FINISHED sessions, every student would import as 0
+    # and the Attendance Detail ledger would be blanked -- wiping history that
+    # D2L is holding. This is the failure mode after a reset or a lost
+    # database, so it is blocked outright rather than warned about.
+    #
+    # The two reasons for having none are told apart deliberately. "No
+    # sessions at all" suggests lost data and the remedy is Restore from D2L.
+    # "Sessions exist but none have been closed" is the ordinary state during
+    # a course's very first class, and telling that instructor their data was
+    # lost would be alarming and false.
     if total_sessions == 0:
+        any_session = (await db.execute(
+            select(func.count(Session.id))
+            .where(Session.course_id == course_id))).scalar() or 0
+        if any_session:
+            return HTMLResponse(
+                "<h2>Nothing to export yet</h2>"
+                "<p>This course has attendance sessions, but none of them have "
+                "been closed yet, so there is nothing final to send to D2L.</p>"
+                "<p>A session that is still open is a class in progress: "
+                "exporting it would send grades that change the moment you "
+                "close it. Use <strong>Stop session</strong> first, then "
+                "export.</p>"
+                f'<p><a href="/instructor/course/{course_id}">Back to course</a></p>',
+                status_code=409)
         return HTMLResponse(
             "<h2>Nothing to export</h2>"
             "<p>This course has no attendance sessions, so an export would "

@@ -394,6 +394,7 @@ let qrHealthy = false;      // last QR fetch succeeded
 let sseHealthy = false;     // SSE stream is open
 let lastContact = 0;        // ms timestamp of the last usable server reply
 let sessionClosed = false;  // the server confirmed, repeatedly, that it is over
+let authLapsed = false;     // signed out or not ours: NOT the same as over
 
 function markContact() { lastContact = Date.now(); }
 
@@ -416,6 +417,20 @@ function renderStatus() {
         chip.dataset.state = 'ok';
         chipText.textContent = 'Live · ' + agoText();
         banner.hidden = true;
+        return;
+    }
+    if (authLapsed) {
+        // Distinct from an outage: the server is reachable and the class is
+        // still running, the browser just is not signed in any more. The code
+        // on the wall stays up and keeps working until it rotates.
+        chip.dataset.state = 'warn';
+        chipText.textContent = 'Sign-in expired';
+        bannerDetail.textContent =
+            'Your sign-in expired, so the code has stopped refreshing. '
+            + 'The code on screen still works until it rotates. Sign in again '
+            + 'in another tab and this page will pick up where it left off. '
+            + 'The session is still open and scans are still being recorded.';
+        banner.hidden = false;
         return;
     }
     const scansBroken = !qrHealthy || age > 20000;
@@ -494,6 +509,20 @@ async function refreshQR() {
         return;
     }
 
+    if (resp.status === 401 || resp.status === 403) {
+        // The instructor's sign-in lapsed, or this is not their session.
+        // Emphatically NOT the same as the session being over: the code on
+        // the wall is still inside its validity window and students scanning
+        // it right now are still being recorded. Erasing it, which is what
+        // the old shared 404 path did, breaks a class for no reason.
+        markContact();
+        qrHealthy = false;
+        authLapsed = true;
+        renderStatus();
+        scheduleQR(5000);   // keep trying: signing in again fixes it live
+        return;
+    }
+
     if (resp.status === 404 || resp.status === 410) {
         // The only answers that mean the session is genuinely gone, and
         // even those are confirmed three times before a room is told.
@@ -508,6 +537,7 @@ async function refreshQR() {
         }
         return;
     }
+    authLapsed = false;
 
     if (!resp.ok) {         // 500 from lock contention, 502/503 from a proxy…
         markContact();      // something answered, just not usefully

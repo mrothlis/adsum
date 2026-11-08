@@ -229,12 +229,20 @@ def main():
     check("mark-present writes manual record", rec == ("present", "manual"))
 
     # 12. Export for D2L Gradebook
+    # The sessions started above are deliberately closed FIRST. An open
+    # session is a class in progress and no longer counts towards a grade, so
+    # exporting with one open would send a file that changes the moment it is
+    # closed. The "refuses while every session is open" case is asserted in
+    # test_grade_roundtrip.py instead of here, because it only holds on a
+    # course with no previously closed sessions and this script is designed to
+    # be run repeatedly against the same live instance.
+    for x in (sid, sid1):
+        s.post(BASE + f"/instructor/session/{x}/stop", cookies=icook, allow_redirects=False)
+
     r = s.get(BASE + f"/instructor/course/{COURSE_ID}/export-d2l", cookies=icook)
     check("export-d2l CSV downloads", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
 
-    # 13. Stop test sessions (leave records in DB; test data is harmless)
-    for x in (sid, sid1):
-        s.post(BASE + f"/instructor/session/{x}/stop", cookies=icook, allow_redirects=False)
+    # 13. Sessions are already stopped above (leave records in DB; test data is harmless)
     # Optional: full cleanup of test records (requires --cleanup flag)
     if "--cleanup" in sys.argv:
         def db_exec_with_retry(db, sql, params, retries=3, delay=0.5):

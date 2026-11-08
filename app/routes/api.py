@@ -39,9 +39,36 @@ async def get_qr(request: Request, session_id: int, db: AsyncSession = Depends(g
     which defeats the point of a rotating in-class QR code.
     """
     user = get_current_user(request)
-    session, _course = await owned_session(db, user, session_id)
-    if not session or session.ended_at is not None:
-        return JSONResponse({"error": "Session not active"}, status_code=404)
+    # These four conditions were all answered with 404, and the projector page
+    # treats 404 as "the session is genuinely over": after three polls it
+    # wipes the code off the wall and announces "This session is closed.
+    # Students can no longer check in."
+    #
+    # Only one of the four actually means that. A signed-out instructor (the
+    # cookie lasts 12 hours, and signing out in another tab is instant) had
+    # the code erased mid-class while students were still scanning, and were
+    # told the session had closed when it was wide open. Distinct statuses
+    # cost nothing and let the page say something true.
+    if not user:
+        return JSONResponse(
+            {"error": "Not signed in", "reason": "auth"}, status_code=401)
+
+    session = await db.get(Session, session_id)
+    if not session:
+        return JSONResponse(
+            {"error": "No such session", "reason": "missing"}, status_code=404)
+
+    _session, _course = await owned_session(db, user, session_id)
+    if not _course:
+        return JSONResponse(
+            {"error": "Not your session", "reason": "forbidden"},
+            status_code=403)
+
+    if session.ended_at is not None:
+        # 410 Gone is the honest code for "this existed and is now over", and
+        # the page already treats it as final.
+        return JSONResponse(
+            {"error": "Session ended", "reason": "ended"}, status_code=410)
 
     token, slot = generate_token(session_id)
     # Build the student check-in URL

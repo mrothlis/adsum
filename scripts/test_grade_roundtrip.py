@@ -207,6 +207,46 @@ def main() -> int:
         check("deleting that session restores the original grades",
               grades(cid), before)
 
+        print("\nAn export is refused while every session is still open")
+        # Asserted here rather than in smoke_test.py because it only holds on
+        # a course with no previously closed sessions, and this fixture is
+        # built fresh. A course whose only session is open has nothing final
+        # to send: the file would change the moment the session closed.
+        cid = new_course("ZZRT3", "Roundtrip: nothing closed yet")
+        r = s.post(f"{BASE}/instructor/course/{cid}/start-session",
+                   timeout=30, allow_redirects=False)
+        open_sid = int(r.headers["location"].rstrip("/").split("/")[-1])
+        r = s.get(f"{BASE}/instructor/course/{cid}/export-d2l", timeout=60)
+        check("the export refuses with 409", r.status_code, 409)
+        check("and explains that nothing has been closed yet",
+              "none of them have been closed" in r.text, True)
+        check("and does NOT claim the data was lost, which would be false",
+              "was reset or lost" in r.text, False)
+        s.post(f"{BASE}/instructor/session/{open_sid}/stop", timeout=30)
+        r = s.get(f"{BASE}/instructor/course/{cid}/export-d2l", timeout=60)
+        check("and succeeds once the session is closed", r.status_code, 200)
+
+        print("\nThe QR endpoint tells a lapsed sign-in apart from a closed session")
+        # The projector page erases the code and announces "This session is
+        # closed" on a 404. The endpoint used to answer 404 for four separate
+        # conditions, one of which was simply "not signed in", so an expired
+        # cookie wiped the code off the wall mid-class and told the room the
+        # session was over while it was wide open.
+        cid = new_course("ZZRT4", "Roundtrip: qr status codes")
+        r = s.post(f"{BASE}/instructor/course/{cid}/start-session",
+                   timeout=30, allow_redirects=False)
+        qr_sid = int(r.headers["location"].rstrip("/").split("/")[-1])
+        check("signed in, on an open session: 200",
+              s.get(f"{BASE}/api/qr/{qr_sid}", timeout=30).status_code, 200)
+        check("NOT signed in: 401, never 404",
+              requests.get(f"{BASE}/api/qr/{qr_sid}", timeout=30).status_code,
+              401)
+        check("a session that does not exist: 404",
+              s.get(f"{BASE}/api/qr/99999999", timeout=30).status_code, 404)
+        s.post(f"{BASE}/instructor/session/{qr_sid}/stop", timeout=30)
+        check("a genuinely closed session: 410",
+              s.get(f"{BASE}/api/qr/{qr_sid}", timeout=30).status_code, 410)
+
         print("\nTwo meetings on one date survive an export/restore round trip")
         cid = new_course("ZZRT2", "Roundtrip: repeated date")
         roster = students(cid)
