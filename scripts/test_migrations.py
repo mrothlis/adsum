@@ -333,7 +333,15 @@ def main() -> int:
         check("duplicate instructor rows are possible before the migration",
               dupes_before == 3, f"got {dupes_before}")
 
-        r = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"],
+        # Upgrade to THIS revision, not to head. Winding the version row back
+        # and running "upgrade head" replays every later migration too, and
+        # those run against a schema that was built from the CURRENT models
+        # and so is already in its final shape. A later migration that drops
+        # a column therefore fails with KeyError on a column that was never
+        # created. Targeting the one revision under test is both narrower and
+        # the only thing that makes sense here.
+        r = subprocess.run([sys.executable, "-m", "alembic", "upgrade",
+                            "e5a91c3f74b2"],
                            cwd=BASE, env=env6, capture_output=True, text=True,
                            check=False)
         check("the migration applies", r.returncode == 0,
