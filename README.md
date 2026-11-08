@@ -8,7 +8,7 @@
 **Classroom attendance in about four seconds, written straight into the D2L
 Brightspace gradebook.**
 
-*Adsum* is Latin for "I am present" — the answer given at roll call.
+*Adsum* is Latin for "I am present", the answer given at roll call.
 
 You start a session and project a QR code that changes every twenty seconds.
 Students scan it with their phones and are marked present. When you want the
@@ -183,7 +183,7 @@ how much weaker.
 - Rotating QR check-in, signed and short-lived
 - Works with D2L, or with no LMS at all: per-course **standalone mode**, where
   a student claims their name once and that phone is theirs for the term
-- Live roster over server-sent events — no refreshing
+- Live roster over server-sent events, no refreshing
 - Sessions end when *you* end them; nothing closes on a timer
 - Mark present, unmark, or excuse anyone, including on a session that already
   ended
@@ -211,7 +211,7 @@ how much weaker.
 |---|---|
 | Python | 3.11 or newer |
 | Database | SQLite. PostgreSQL is **not** supported today, see [Limitations](#limitations) |
-| D2L | A course you can add an External Learning Tool link to, on a Brightspace site where LTI 1.1 is still enabled — **or nothing at all**, if you run courses in [standalone mode](#running-adsum-without-an-lms-standalone-mode) |
+| D2L | A course you can add an External Learning Tool link to, on a Brightspace site where LTI 1.1 is still enabled. **Or nothing at all**, if you run courses in [standalone mode](#running-adsum-without-an-lms-standalone-mode) |
 | Network | A public HTTPS URL students' phones can reach |
 
 No container runtime, no message queue, no Redis. It is one Python process and
@@ -268,7 +268,7 @@ upgrades, and a troubleshooting table.
 ## Running Adsum without an LMS (standalone mode)
 
 You do not need D2L, or any LMS, to use Adsum. A course can be created in the
-app — **Dashboard → New course** — and set to **standalone**, where students
+app (**Dashboard → New course**) and set to **standalone**, where students
 identify themselves by claiming their own name on their own phone, once.
 
 This is also what keeps the tool usable as D2L retires LTI 1.1. Read the dated
@@ -304,7 +304,7 @@ twenty seconds, so a student has to be looking at the screen in the room. What
 standalone mode cannot prove on its own is *identity*. At the moment of that
 very first scan, nothing stops a student picking a classmate's name instead of
 their own. With D2L, that is impossible without being signed into D2L as that
-classmate — the LMS has already proved who they are, and Adsum simply believes
+classmate. The LMS has already proved who they are, and Adsum simply believes
 it.
 
 What standalone mode does about it:
@@ -312,7 +312,7 @@ What standalone mode does about it:
 - **One name, one phone.** A name can have only one active device binding, and
   that is enforced by a unique index in the database, not by a check in the
   code that two simultaneous scans could slip past. The second phone is
-  **refused** — never silently allowed, and never silently moved onto the new
+  **refused**: never silently allowed, and never silently moved onto the new
   device.
 - **The instructor is told.** Every refused claim is shown at the top of the
   course page, with the student's name and the time, until you acknowledge it.
@@ -320,11 +320,11 @@ What standalone mode does about it:
   to you, and you can fix it while the class is still in the room.
 - **You can release a binding.** New phone, lost phone, or wrong name tapped:
   release it on the course page and the name can be claimed again.
-  **Releasing deletes no attendance** — attendance belongs to the student, not
+  **Releasing deletes no attendance**: attendance belongs to the student, not
   to the phone.
 - **The roster is not published.** The "who are you?" list shows names only.
   Student ID numbers and usernames never appear on it, and only students on the
-  current roster are selectable — somebody your last roster import marked as
+  current roster are selectable, so somebody your last roster import marked as
   dropped cannot be claimed.
 - **Claiming is only possible from inside a live check-in**, with a QR token
   that passes the same verification a check-in does. Nobody can bind themselves
@@ -335,7 +335,7 @@ What standalone mode does about it:
 
 **Single sign-on (Google or Microsoft) would remove claim-time impersonation
 entirely**, because the identity would again come from outside Adsum. It is a
-known future option. **It does not exist today — nothing in Adsum speaks
+known future option. **It does not exist today: nothing in Adsum speaks
 OAuth or OIDC**, and this paragraph is a statement of direction, not of
 anything you can switch on.
 
@@ -395,7 +395,7 @@ course page.
 
 **In D2L: Grades → Export**, set **Key Field** to Username or Org Defined ID,
 tick **Last Name** and **First Name** under *User Details*, then **Export to
-CSV**. Not the Classlist tool — it has no export at all, only email and print.
+CSV**. Not the Classlist tool: it has no export at all, only email and print.
 The two name boxes are off by default, so an export done without ticking them
 has no names in it; Adsum refuses that file and tells you which boxes to tick
 rather than building a roster of blanks.
@@ -403,7 +403,7 @@ rather than building a roster of blanks.
 What that import does:
 
 - students on the file who are not in Adsum are **added**;
-- students in Adsum who are **not on the file are marked as dropped** — never
+- students in Adsum who are **not on the file are marked as dropped**, never
   deleted, because their attendance is real history and your D2L gradebook may
   still refer to them. A dropped student stops counting towards attendance and
   is left out of the gradebook export (D2L would reject the row as an
@@ -418,14 +418,14 @@ You get a summary naming everybody who was added, dropped or changed, and it
 stays on the page until you dismiss it.
 
 **If the file would remove more than half your roster, or contains none of
-your current students, the import refuses and changes nothing** — including
+your current students, the import refuses and changes nothing**, including
 the adds. That case is almost always a filtered export, a different section,
 or last term's file rather than a real mass drop. The page says how many would
 go and who, and lets you confirm deliberately if it really is correct.
 
 Because nothing happens until you import, the course page and your dashboard
 show when you last did, and warn you after about a week. Re-download the
-Classlist whenever you want to know who has added or dropped — typically after
+Classlist whenever you want to know who has added or dropped, typically after
 the add/drop deadline and then every week or two.
 
 > **Rotating the secret?** Change it at `/admin` and in D2L at the same time.
@@ -437,8 +437,8 @@ the add/drop deadline and then every week or two.
 1. **Start Session** on the course page and project the QR code.
 2. Students scan. The list fills in live.
 3. **End Session** when you're done.
-4. Phone trouble? **Mark Present** — during or after the session.
-5. Documented absence? **Excuse** — it leaves that student's denominator.
+4. Phone trouble? **Mark Present**, during or after the session.
+5. Documented absence? **Excuse**, which leaves that student's denominator.
 
 A student's very first check-in takes two scans: they scan, get sent to D2L to
 sign in, and scan again. After that it's a single scan all term. Telling the
@@ -458,12 +458,12 @@ You get two columns:
 
 | Column | Type | Contents |
 |---|---|---|
-| `Attendance` | Numeric 0–100 | The policy-adjusted percentage |
+| `Attendance` | Numeric 0 to 100 | The policy-adjusted percentage |
 | `Attendance Detail` | Text | `5/8 present, 3 unexcused (3 allowed) \| 09/01:P 09/03:A ...` |
 
 Re-importing **overwrites** both columns with current running totals, so
 weekly imports need no reconciliation. It also overwrites manual edits made in
-D2L — correct attendance in Adsum and re-export instead.
+D2L. Correct attendance in Adsum and re-export instead.
 
 Tick *Create new grade item* on the **first** import only.
 
@@ -488,27 +488,27 @@ one installation can run entirely different policies.
 | Setting | Meaning | Default for a new course |
 |---|---|---|
 | **Unexcused absences forgiven** | How many a student may have before the percentage drops | 3 |
-| **A late arrival is worth** | Share of a class a late arrival earns, 0–100% | 100% |
+| **A late arrival is worth** | Share of a class a late arrival earns, 0 to 100% | 100% |
 | **Marked late after** | Minutes from session start before a *scanned* check-in records as late | 10 |
 
 Leave a box empty to use the default. Changing a policy re-scores that
-course's existing attendance immediately — the percentage is always computed
+course's existing attendance immediately: the percentage is always computed
 from the records, never stored.
 
 **Late is mostly a manual decision, not a timer.** In practice you project the
 QR code at the start of class and take it down, so a student who arrives at
-ten past cannot scan at all — they talk to you, and you mark them from the
+ten past cannot scan at all. They talk to you, and you mark them from the
 session page with **Present**, **Late** or **Excused**. That click is where
 the real judgement happens, which is why late credit is a percentage rather
 than an on/off switch: you can decide a late arrival is worth half a class.
 The "marked late after" threshold only matters if you leave the code up.
 
-Excused absences are always removed from the denominator — a documented
+Excused absences are always removed from the denominator: a documented
 absence neither helps nor hurts. A course with no sessions yet scores 100, so
 nobody is punished in week one. Percentages round half **up**, so 62.5%
 becomes 63.
 
-**How much attendance is worth is set in D2L**, not here. Adsum emits 0–100;
+**How much attendance is worth is set in D2L**, not here. Adsum emits 0 to 100;
 your gradebook's Maximum Points and category weighting decide what that means.
 Duplicating weighting here would create two sources of truth that silently
 disagree.
@@ -575,7 +575,7 @@ constraint, and three things enforce it:
 
 1. **The whole history ships to D2L.** The `Attendance Detail` text column
    carries every class date and status in one cell, so the gradebook holds the
-   complete record — not just a summary.
+   complete record, not just a summary.
 2. **That column is parseable.** A D2L grade export is therefore a full
    backup. **Restore from D2L** on the course page rebuilds Adsum's sessions
    and records from it. Restoring is additive and idempotent.
@@ -599,7 +599,7 @@ app reads. The ones that matter:
 | `HOST` | Interface to bind. Defaults to `0.0.0.0`, which is **every interface**: on a laptop that exposes the app to the whole network over plain HTTP. Use `127.0.0.1` for a local try-out, or when a reverse proxy on the same machine is the only thing that should reach it. |
 | `PORT` | Port to listen on (8000). |
 | `INSTITUTION_NAME`, `D2L_HOST`, `LTI_CONSUMER_KEY` | Institution identity. |
-| `QR_ROTATION_SECONDS` | Rotation interval (20). A token lives 20–40s. |
+| `QR_ROTATION_SECONDS` | Rotation interval (20). A token lives 20 to 40s. |
 | `DISPLAY_TIMEZONE` | Display zone. Timestamps are stored as UTC. |
 | `DEFAULT_GEOFENCE_LAT/LON/RADIUS_M` | Starting position of the map picker. |
 | `DATABASE_URL` | SQLite. PostgreSQL is not supported today, see [Limitations](#limitations). |
@@ -618,23 +618,23 @@ The LTI **consumer secret** is not in `.env` at all. It lives in the database,
 is generated on first start, and is shown and changed at `/admin`.
 
 **Attendance policy is not in here.** Forgiven absences, the late threshold
-and whether late counts as present are set per course by each instructor —
-see [Attendance policy](#attendance-policy). Whoever installs the server does
+and whether late counts as present are set per course by each instructor.
+See [Attendance policy](#attendance-policy). Whoever installs the server does
 not decide how many absences a colleague's students are allowed.
 
 ## Roles and multi-instructor use
 
 Two scopes, two places, and the split is deliberate.
 
-**Course settings** — `Course → Settings`, owned by the instructor who teaches
-it: name, D2L org unit, deep link, attendance policy, geofence, campus IPs.
-Everything here stops at the course boundary.
+**Course settings** live at `Course → Settings`, owned by the instructor who
+teaches it: name, D2L org unit, deep link, attendance policy, geofence and
+campus IPs. Everything here stops at the course boundary.
 
-**Administration** — `/admin`, admin-only: instructor accounts, the shared D2L
-host and LTI credentials, and a read-only install health panel. These are
-install-wide, which is exactly why they are *not* on a course page — a change
-that breaks every instructor's launches should not happen at a URL that says
-*course 2*.
+**Administration** lives at `/admin`, admin-only: instructor accounts, the
+shared D2L host and LTI credentials, and a read-only install health panel.
+These are install-wide, which is exactly why they are *not* on a course page:
+a change that breaks every instructor's launches should not happen at a URL
+that says *course 2*.
 
 | | Instructor | Admin |
 |---|---|---|
@@ -652,14 +652,14 @@ do it. An admin who needs a course's data has to be added to that course as an
 instructor, visibly.
 
 So `/admin` has no cross-course browsing, no global attendance report and no
-impersonation — and `scripts/test_admin_page.py` fails the build if one
+impersonation, and `scripts/test_admin_page.py` fails the build if one
 appears. Deployment values (`SECRET_KEY`, `DATABASE_URL`, `DEBUG`) are shown
 read-only; editing those from a web form is how an installation ends up unable
 to start.
 
-Accounts are **deactivated, never deleted** — grades already imported into D2L
-refer to their courses. There is no self-registration, and an admin cannot
-remove their own rights or lock themselves out.
+Accounts are **deactivated, never deleted**, because grades already imported
+into D2L refer to their courses. There is no self-registration, and an admin
+cannot remove their own rights or lock themselves out.
 
 ## Security
 
@@ -676,7 +676,7 @@ remove their own rights or lock themselves out.
 - **Student pages load no third-party resources.** Leaflet and Chart.js appear
   only on instructor screens.
 
-Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
+Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
 
 ## Privacy and FERPA
 
@@ -825,7 +825,7 @@ Worth knowing before you adopt it.
   first scan claims the name and records the attendance in one request.
 - **Standalone identity is claimed, not proved.** A student's first scan could
   claim a classmate's name. One phone per name is enforced in the database,
-  the clash is shown to the instructor, and a binding can be released — see
+  the clash is shown to the instructor, and a binding can be released. See
   [standalone mode](#running-adsum-without-an-lms-standalone-mode) for the
   full trade. Single sign-on would remove this and does not exist yet.
 - **D2L truncates usernames and emails to 20 characters.** That truncated form
@@ -856,7 +856,7 @@ Mark them present with one click, during or after the session.
 **Can students check in from outside the room?**
 The code changes every twenty seconds, so a forwarded screenshot is stale on
 arrival. If you want a hard guarantee, enable the geofence or restrict to
-campus IP ranges — both are per course.
+campus IP ranges. Both are per course.
 
 **Does the session close automatically?**
 No. It accepts check-ins until you end it. Someone arriving late is a
@@ -877,7 +877,7 @@ than a couple of people depend on it.
 
 ## Contributing
 
-Bug reports and pull requests are welcome — see
+Bug reports and pull requests are welcome. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the test suite, and the design
 principles a change is weighed against. The main one: **D2L is the system of
 record, and Adsum is the pipe.** Changes that make the app irreplaceable are
@@ -888,9 +888,9 @@ Release notes are in [CHANGELOG.md](CHANGELOG.md).
 ## Tech stack
 
 Python 3.11+, FastAPI, SQLAlchemy (async), SQLite by default, Alembic for
-migrations. Jinja2 templates with vanilla JavaScript — no build step. Leaflet
+migrations. Jinja2 templates with vanilla JavaScript, no build step. Leaflet
 for the map picker, Chart.js for trends, both instructor-only.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE) for the full text and copyright holder.
+MIT. See [LICENSE](LICENSE) for the full text and copyright holder.

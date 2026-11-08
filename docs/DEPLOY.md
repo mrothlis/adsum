@@ -309,7 +309,7 @@ git pull
 **The app applies pending migrations when it starts, taking a backup first**,
 so there is no manual `alembic upgrade head` step and no way to forget it. If
 a migration fails the app refuses to start rather than serving an out-of-date
-schema, writes `.migration-failed`, and does not retry — important here,
+schema, writes `.migration-failed`, and does not retry. That matters here,
 because `start.ps1` restarts uvicorn every 10 seconds forever, and retrying a
 failing migration would take a fresh backup each time and prune every good one
 within minutes. Check `server.log`, fix the cause, delete

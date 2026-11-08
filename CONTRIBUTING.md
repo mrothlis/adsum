@@ -113,7 +113,7 @@ alembic revision --autogenerate -m "describe change"
 ## Style
 
 Plain Python, no framework beyond FastAPI and SQLAlchemy. Comments should
-explain *why* something is the way it is, especially where it looks odd —
+explain *why* something is the way it is, especially where it looks odd:
 those are usually the places a past bug is being prevented.
 
 ## Reporting bugs

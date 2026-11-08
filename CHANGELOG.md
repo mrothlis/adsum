@@ -6,7 +6,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed — three defects that produced wrong grades
+### Fixed: three defects that produced wrong grades
 
 A ten-agent review found these. All three were invisible to the existing test
 suite, and all three changed a number that goes into a gradebook.
@@ -38,14 +38,14 @@ missed.
 
 **Restore from D2L collapsed two meetings held on one day.** The restore
 grouped existing sessions into a dictionary keyed on the local date. Two
-meetings on one day is ordinary — a lab and a lecture, a Monday double period
-— and the ledger records them as two tokens carrying the same date. The
+meetings on one day is ordinary (a lab and a lecture, a Monday double period)
+and the ledger records them as two tokens carrying the same date. The
 dictionary kept only one, the duplicate guard then skipped the second token,
 and the absence won. A course standing at 100/50 came back as 100/100. The
 information was never missing from the export, only from that dictionary; the
 Nth token for a date now maps to the Nth session on that date.
 
-### Fixed — two test suites could not fail a build
+### Fixed: two test suites could not fail a build
 
 `scripts/test_isolation.py` and `scripts/test_admin_separation.py` both ended
 by printing `FAILURES: ...` and returning zero. Every cross-instructor
@@ -59,7 +59,7 @@ course. Against seeded demo data that looked like tidying up; pointed at a
 real install, and `BASE_URL` is configurable, it silently destroyed a
 semester of attendance. It now deletes only the session it created.
 
-### Added — `scripts/test_grade_roundtrip.py`
+### Added: `scripts/test_grade_roundtrip.py`
 
 Drives a real server and reads the actual CSV D2L would import, because none
 of the above is observable without both. Proves that opening a session changes
@@ -72,7 +72,7 @@ draft used the default policy, where three absences are forgiven; forgiveness
 absorbed the missing meeting, so broken and correct code produced identical
 output and the suite passed against known-broken code.
 
-### Changed — documentation that contradicted the code
+### Changed: documentation that contradicted the code
 
 - The login throttle was documented as "five failures per IP" in two places.
   It is five per account **or** twenty-five per IP, then a ten-minute lockout.
@@ -85,26 +85,26 @@ output and the suite passed against known-broken code.
   described four, and `docs/IT-REVIEW.md` said three. It is four.
 
 
-### Added — standalone mode: Adsum without an LMS
+### Added: standalone mode (Adsum without an LMS)
 
 A Course could only ever be created in two places, `app/routes/lti.py` and
 `app/seed.py`, and a student's identity at check-in came only from the signed
 session cookie an LTI launch issues. Those two facts were the whole of the
-app's dependency on D2L — and they meant a fresh install's dashboard was
+app's dependency on D2L, and they meant a fresh install's dashboard was
 permanently empty for anyone without Brightspace, and that Adsum would stop
 working when D2L retires LTI 1.1 (no new 1.1 integrations after the February
 2027 release; launches stop late 2027).
 
 - **Courses can be created in the interface.** *Dashboard → New course*, owned
   by the instructor who creates it. The dashboard's empty state now offers
-  both paths honestly — launch from D2L, or create one here — instead of
+  both paths honestly (launch from D2L, or create one here) instead of
   explaining that there is no button on purpose. A course created this way
   works with everything that already existed: roster import with add/drop
   reconciliation, sessions, the rotating QR, the typed code, per-course
   policy, the geofence, campus IP ranges and the exports.
 - **Identity is a per-course mode.** `courses.mode` is `d2l` or `standalone`,
-  NOT NULL with a server default of `d2l`, so every existing row — including
-  the live course — keeps the LMS path and nothing about it changes. In
+  NOT NULL with a server default of `d2l`, so every existing row, including
+  the live course, keeps the LMS path and nothing about it changes. In
   standalone mode the D2L-only settings (org unit id, deep link) and the
   Brightspace import instructions are hidden rather than shown broken, and the
   gradebook export becomes "download a CSV for whatever gradebook you use".
@@ -114,7 +114,7 @@ working when D2L retires LTI 1.1 (no new 1.1 integrations after the February
   no two-scan problem here because there is no login round trip. Every later
   scan is silent, exactly as before.
 
-### Security — the limits of a claimed identity, enforced
+### Security: the limits of a claimed identity, enforced
 
 Standalone identity is weaker than an LMS vouching for a student, so the
 guards around it are the feature:
@@ -128,9 +128,9 @@ guards around it are the feature:
   partial unique index on `device_bindings(course_id, student_id) WHERE
   released_at IS NULL`, following `uq_sessions_one_open_per_course`, because a
   SELECT-then-INSERT loses the race between two phones claiming at the same
-  moment. The second device is **refused** — never silently allowed, never
-  silently moved — and the route catches `IntegrityError` rather than
-  returning 500. One phone also cannot hold two names.
+  moment. The second device is **refused**: never silently allowed, never
+  silently moved. The route catches `IntegrityError` rather than returning
+  500. One phone also cannot hold two names.
 - **The device cookie is unforgeable and scoped.** Signed with the app's
   existing `itsdangerous` machinery under its **own salt**, so an instructor
   session cookie is not a valid device cookie and vice versa. It carries the
@@ -141,15 +141,15 @@ guards around it are the feature:
   binding row is re-read on every scan, so a release signs that phone out
   immediately.
 - **The roster is not published.** The "who are you?" list shows **names
-  only** — never student ID numbers or usernames, which are education records
-  — and only students on the **active** roster, so somebody a classlist import
-  marked as dropped cannot be claimed.
+  only**, never student ID numbers or usernames, which are education records.
+  It offers only students on the **active** roster, so somebody a classlist
+  import marked as dropped cannot be claimed.
 - **Claim attempts are rate limited**, following the typed-code pattern:
   failures only, cleared on success, over a short window, so a student who
   taps the wrong thing is not locked out in front of a class.
 - **Every claim, refused claim and release is logged.**
 
-### Added — instructor control over bindings
+### Added: instructor control over bindings
 
 - The course page lists which phone is checked in as which student and when,
   with a **Release** action for a new phone, a lost phone or a wrong name.
@@ -193,7 +193,7 @@ releasing preserves attendance and frees the name; and a standalone course
 never shows a D2L setting. Added to `scripts/ci_local.sh` **and** the
 integration job in `.github/workflows/ci.yml` together.
 
-### Added — the classlist import is a reconciliation, not an append
+### Added: the classlist import is a reconciliation, not an append
 
 The import counted new and updated students and never noticed anybody who had
 **disappeared** from the classlist. A student who dropped stayed enrolled
@@ -203,15 +203,15 @@ transient banner reading "32 new, 4 updated".
 
 - **Drops are detected and named.** A student on the roster who is missing
   from a newly imported classlist is marked dropped (`dropped_at` on
-  `course_enrollments`) — **marked, never deleted and never unenrolled**,
-  because their attendance is real history and the D2L gradebook may still
-  refer to them. The same rule the app already follows for instructor
-  accounts. A student who reappears in a later import is un-dropped and
-  reported as a re-add, with their earlier attendance intact.
+  `course_enrollments`). They are **marked, never deleted and never
+  unenrolled**, because their attendance is real history and the D2L
+  gradebook may still refer to them. The same rule the app already follows
+  for instructor accounts. A student who reappears in a later import is
+  un-dropped and reported as a re-add, with their earlier attendance intact.
 - **A wrong file cannot drop the class.** Importing a filtered export,
   another section's classlist or last term's file is the realistic accident,
   and it used to be indistinguishable from a mass drop. The import now
-  **refuses and changes nothing** — not the drops and not the adds — when a
+  **refuses and changes nothing** (not the drops and not the adds) when a
   file would drop more than half the active roster, or when it shares no
   students at all with a non-empty roster. The refusal page names how many
   would go and who, explains what to check in D2L, and offers a deliberate
@@ -222,7 +222,7 @@ transient banner reading "32 new, 4 updated".
   data kept.** Audited and fixed: the course roster and its count, the
   early-alert list, the live session page's enrolled total and its
   mark-present list, the live attendance API and its SSE stream, the
-  analytics enrolled count, both CSV exports, and the D2L gradebook export —
+  analytics enrolled count, both CSV exports, and the D2L gradebook export,
   where a dropped student's row would be rejected by D2L as an unrecognised
   user. They are shown instead in a collapsed **Dropped from the D2L
   classlist** section with the date they were detected as gone and the
@@ -236,25 +236,25 @@ transient banner reading "32 new, 4 updated".
 - **A stale roster says so.** The course page and the dashboard card show
   when a classlist was last imported in plain language, and warn after a
   week or when one has never been imported. Worded to be honest: Adsum
-  **cannot** ask D2L who has added or dropped — an LTI 1.1 launch carries no
-  roster and the Valence enrollments API needs an OAuth application
-  registered by a Brightspace administrator — so the warning says to
+  **cannot** ask D2L who has added or dropped, because an LTI 1.1 launch
+  carries no roster and the Valence enrollments API needs an OAuth application
+  registered by a Brightspace administrator. So the warning says to
   re-download the classlist, never that D2L was checked.
 - An LTI launch by a student previously marked dropped un-drops them: D2L
   granting them access to the course is fresher evidence than a classlist
   file from last week, and otherwise a re-added student could not check in
   until the instructor remembered to import again.
-- The "not listed in D2L" flag now explains both of its meanings — a new add
+- The "not listed in D2L" flag now explains both of its meanings: a new add
   that has not been re-imported yet, or somebody who should not be there.
 - Migration `c3b7f0d41a92` (additive, reversible): `dropped_at` on
   `course_enrollments`, `roster_last_imported_at` and
   `roster_last_import_summary` on `courses`. NULL everywhere for existing
-  rows, which is the honest translation — every existing enrollment is still
+  rows, which is the honest translation: every existing enrollment is still
   on the classlist as far as the old additive import could tell, and no
   course has an import the app ever observed. Pinned by
   `scripts/test_roster_sync.py`, which runs in CI.
 
-### Fixed — a present student could be recorded absent
+### Fixed: a present student could be recorded absent
 
 These were reproduced against a disposable copy before being fixed, and each
 is now pinned by `scripts/test_robustness.py`, which runs in CI.
@@ -282,14 +282,14 @@ is now pinned by `scripts/test_robustness.py`, which runs in CI.
   screen and retries with backoff; only a repeatedly confirmed 404/410 closes
   it, and that case no longer borrows the word "ended".
 - **A roster import of a Windows-encoded classlist returned 500** and imported
-  nothing — any accented name saved by Excel, or an `.xlsx` picked by mistake.
+  nothing: any accented name saved by Excel, or an `.xlsx` picked by mistake.
   The roster then stayed empty, which means nobody in that class could check in
   at all. Uploads are now decoded defensively, size-capped, and explained
   instead of crashing.
 - **Double-clicking Present or Excused returned 500** from an unhandled unique
   violation, despite the record having been written.
 
-### Fixed — privacy
+### Fixed: privacy
 
 - **The projected session page showed every student's name and ID number**, and
   the mark-present dropdown listed exactly who was absent, to the whole room.
@@ -299,8 +299,8 @@ is now pinned by `scripts/test_robustness.py`, which runs in CI.
 
 ### Added
 
-- **A "Project this" mode** and a much larger QR code — 605px at 1080p instead
-  of 300px, upscaled with hard module edges rather than blurred — plus the
+- **A "Project this" mode** and a much larger QR code (605px at 1080p instead
+  of 300px, upscaled with hard module edges rather than blurred), plus the
   check-in URL in text for a student whose camera will not focus, and a live
   status indicator so a dropped connection no longer looks identical to
   "nobody has scanned yet".

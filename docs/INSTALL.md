@@ -25,7 +25,7 @@ supported one), an IT ticket for LTI 1.1 today, or any paid service.
 - A small cloud VM (DigitalOcean, Linode, AWS Lightsail, Azure).
 - A campus-hosted VM, which is the right answer for anything beyond a pilot.
 - A department server or lab machine with a stable address.
-- Your own workstation, for testing only — if the machine sleeps, class
+- Your own workstation, for testing only. If the machine sleeps, class
   check-in stops.
 
 ---
@@ -43,7 +43,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Edit .env — see section 3.
+# Edit .env, see section 3.
 
 python run.py
 ```
@@ -139,10 +139,10 @@ LTI_CONSUMER_KEY=adsum
 ```
 
 `D2L_HOST` is your Brightspace hostname. Some institutions are hosted by a
-consortium, so check the address you actually log in to — it is not always
-`<school>.brightspace.com`.
+consortium, so check the address you actually log in to, because it is not
+always `<school>.brightspace.com`.
 
-### Attendance policy — not your job
+### Attendance policy: not your job
 
 Forgiven absences, the late threshold and whether a late arrival counts as
 present are set **per course by each instructor**, in the web interface under
@@ -202,7 +202,7 @@ PostgreSQL expecting it to work.
 
 ## 4. Making it reachable over HTTPS
 
-Students' phones must reach the server, and it must be HTTPS — QR tokens and
+Students' phones must reach the server, and it must be HTTPS. QR tokens and
 session cookies travel in the request otherwise. Pick one:
 
 ### Campus DNS plus a reverse proxy (best for institutional hosting)
@@ -394,7 +394,7 @@ page only comes into existence at step 6.
 **Adsum cannot poll D2L for the class list.** An LTI 1.1 launch carries the
 course and the person launching it and no roster at all, and the Valence
 `enrollments` API that could return one needs an OAuth application registered
-by a Brightspace *administrator* — the IT ticket this project exists to avoid.
+by a Brightspace *administrator*: the IT ticket this project exists to avoid.
 Do not promise users a roster that syncs itself.
 
 So the instructor exports the classlist from D2L and imports it on the course
@@ -424,7 +424,7 @@ Brightspace course:
 - **D2L prefixes the key field's values with `#`** (`#jsmith`), and which
   column is the key field is chosen at export time. Adsum strips it from every
   identifier column. This matters more than it looks: stored verbatim, a
-  username would match no existing student — creating a duplicate — and the
+  username would match no existing student (creating a duplicate) and the
   gradebook export would then emit a username D2L does not recognise, so the
   grade would silently land nowhere.
 
@@ -435,7 +435,7 @@ at all.
 
 An import that would drop more than half the active roster, or that shares no
 students with a non-empty roster, is **refused outright and changes nothing**
-until the instructor confirms it explicitly — the common cause is a filtered
+until the instructor confirms it explicitly. The common cause is a filtered
 or wrong-course export, not a real mass drop. Both thresholds are code
 constants in `app/routes/instructor.py`; like attendance policy they are
 deliberately not install settings. Because nothing is reconciled until an
@@ -466,20 +466,20 @@ instructor on the install.
 ## 6b. Running without an LMS (standalone mode)
 
 Skip this if you did section 6. This is the whole setup for an instructor with
-no D2L — or for anyone planning past D2L's LTI 1.1 retirement, since nothing
+no D2L, or for anyone planning past D2L's LTI 1.1 retirement, since nothing
 here depends on LTI at all.
 
 1. Sign in and choose **New course** on the dashboard.
-2. Give it a name and code, and choose **No LMS — students claim their name
-   once (standalone)**.
+2. Give it a name and code, and choose the **No LMS** option, where students
+   claim their name once (standalone).
 3. On the course page, **import your class roster**: any CSV with first name,
    last name and a student ID column. In this mode the roster is also the list
    students pick their own name from, so load it before the first class.
 4. Start a session and project the QR code as normal.
 
 The first time a student scans, they are asked who they are and pick their name.
-That binds their phone to that name and checks them in **in the same request** —
-there is no login round trip, so no second scan is needed. Every later scan is
+That binds their phone to that name and checks them in **in the same request**.
+There is no login round trip, so no second scan is needed. Every later scan is
 silent.
 
 Attendance leaves as a plain CSV: **Download a CSV for your gradebook** on the
@@ -494,7 +494,7 @@ The rotating QR code still proves **presence**: the code changes every twenty
 seconds, so a student has to be looking at the screen in the room. What this
 mode cannot prove on its own is **identity**. At that very first scan, nothing
 stops a student picking a classmate's name. With D2L that is impossible without
-being signed in as the classmate — the LMS has already proved who they are.
+being signed in as the classmate. The LMS has already proved who they are.
 
 The guards, and what you have to do:
 
@@ -626,7 +626,7 @@ lost, use **Restore from D2L** on the course page and upload that export; the
 sessions and attendance are rebuilt. Restoring is additive and idempotent, so
 running it twice is harmless.
 
-This is why the app refuses to export when a course has no sessions — an empty
+This is why the app refuses to export when a course has no sessions: an empty
 file would otherwise overwrite the record D2L is holding.
 
 ---
@@ -645,14 +645,14 @@ commands work.
 **The schema is brought up to date at startup, and a backup is taken first.**
 You do not need to run `alembic upgrade head` by hand. This is deliberate:
 forgetting it meant the app started happily against the old schema and then
-threw 500s on whichever page touched a column that was never added — possibly
+threw 500s on whichever page touched a column that was never added, possibly
 days later, in front of a class.
 
 What startup does, in order:
 
 | Database state | What happens | Backup taken? |
 |---|---|---|
-| Empty | Schema built and stamped at head | No — nothing to lose |
+| Empty | Schema built and stamped at head | No, nothing to lose |
 | Already at head | Nothing | No |
 | Tables but no migration version | Stamped at head, history *not* replayed | No |
 | Behind head | **Backed up**, then migrated | Yes, before any change |
@@ -668,7 +668,7 @@ Two behaviours worth knowing:
   launcher restarts the app every 10 seconds indefinitely, so a naive
   back-up-then-migrate would take a fresh backup on every attempt and, with
   `BACKUP_KEEP` at 14, would delete every good backup within a couple of
-  minutes — destroying the one thing the backup exists to protect.
+  minutes, destroying the one thing the backup exists to protect.
 
 Set `AUTO_MIGRATE=false` in `.env` if your deployment runs migrations as its
 own step. Automatic migration is SQLite-only, because the backup uses SQLite's
@@ -739,7 +739,7 @@ or `.env`, and pick a course automatically. Set `TEST_COURSE_ID` to choose
 one. `test_standalone.py` also needs `SECRET_KEY`, because it mints an
 out-of-date QR token to prove such a token cannot claim an identity.
 
-A fresh install has no courses, so these cannot pass until you have one —
+A fresh install has no courses, so these cannot pass until you have one:
 either from D2L (section 6), created in the UI (section 6b), or from a
 `SEED_DEMO=true` throwaway database as described in section 5. The quickest
 way to run the whole set the way CI does, on a scratch copy with its own
