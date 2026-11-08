@@ -126,7 +126,6 @@ form = {
     "name": "Colleague Course", "course_code": "COL1000",
     "d2l_org_unit_id": "", "d2l_attendance_checkin_url": "",
     "geofence_lat": "", "geofence_lon": "", "geofence_radius_m": "75",
-    "allowed_ip_ranges": "",
     "d2l_host": "evil.example.com",
     "lti_consumer_key": "hijacked",
     "lti_consumer_secret": "hijacked-secret",

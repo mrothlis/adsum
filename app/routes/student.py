@@ -16,7 +16,7 @@ from app import devices
 from app.auth import get_current_user
 from app.clock import utc_now
 from app.database import get_db
-from app.geo import check_geofence, check_ip_range
+from app.geo import check_geofence
 from app.main import templates
 from app.models import (
     AttendanceRecord,
@@ -489,14 +489,7 @@ async def _record_attendance(request: Request, db: AsyncSession, session: Sessio
                 identified_student=student, geofence_required=True,
             )
 
-    # 7. Campus WiFi check — only block when ranges are configured AND the
-    #    client is explicitly outside them. Unconfigured (None) means "allow".
-    client_ip = request.client.host if request.client else None
-    ip_ok = check_ip_range(client_ip, course.allowed_ip_ranges if course else None)
-    if ip_ok is False:
-        return _checkin_response(request, token, errors=["You must be on campus WiFi to check in."])
-
-    # 8. Late check, using this course's threshold rather than the server's
+    # 7. Late check, using this course's threshold rather than the server's
     status = "present"
     if session.started_at:
         elapsed = (utc_now() - session.started_at).total_seconds() / 60
@@ -515,8 +508,6 @@ async def _record_attendance(request: Request, db: AsyncSession, session: Sessio
         gps_lat=None,
         gps_lon=None,
         gps_distance_m=distance_m,
-        ip_address=client_ip,
-        ip_in_range=bool(ip_ok) if ip_ok is not None else None,
         status=status,
     )
     db.add(record)

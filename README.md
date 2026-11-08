@@ -373,7 +373,7 @@ page to get credentials from. They live at `/admin`.
    things: the launch creates the course in Adsum, creates or links your
    instructor account, and enrols you on it.
 7. **Only now does Course → Settings exist.** Open it to set the geofence, the
-   attendance policy and campus IP ranges. The roster import, which takes a
+   attendance policy and the geofence. The roster import, which takes a
    D2L Classlist export, is on the course page itself.
 
 **If you are not the Adsum administrator**, the course settings page
@@ -856,7 +856,7 @@ Mark them present with one click, during or after the session.
 **Can students check in from outside the room?**
 The code changes every twenty seconds, so a forwarded screenshot is stale on
 arrival. If you want a hard guarantee, enable the geofence or restrict to
-campus IP ranges. Both are per course.
+the geofence. Both are per course.
 
 **Does the session close automatically?**
 No. It accepts check-ins until you end it. Someone arriving late is a

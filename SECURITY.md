@@ -12,9 +12,10 @@ within a week.
 ## What this application holds
 
 Student names, institutional usernames and ID numbers, and attendance records.
-Also the IP address of each check-in, and on a course where the instructor has
-enabled the geofence, the distance of that check-in from the classroom. Raw
-coordinates are not kept.
+On a course where the instructor has enabled the geofence, the distance of each
+check-in from the classroom. Raw coordinates are not kept, and neither is any
+network address: the IP address and campus-range flag that earlier versions
+stored have been removed.
 In the United States these are education records protected by FERPA, and
 equivalent rules apply elsewhere. Anyone deploying this is responsible for
 hosting it accordingly.

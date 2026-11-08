@@ -1451,7 +1451,6 @@ async def save_course_settings(
     geofence_lon: Optional[float] = Form(None),
     geofence_radius_m: Optional[float] = Form(None),
     geofence_enabled: bool = Form(False),
-    allowed_ip_ranges: Optional[str] = Form(None),
     # Empty string means "fall back to the institution default", which is why
     # these are strings rather than ints: a blank number field posts "".
     policy_section: Optional[str] = Form(None),
@@ -1499,8 +1498,6 @@ async def save_course_settings(
     if geofence_radius_m is not None:
         course.geofence_radius_m = geofence_radius_m
     course.geofence_enabled = geofence_enabled
-    if allowed_ip_ranges is not None:
-        course.allowed_ip_ranges = allowed_ip_ranges.strip() or None
 
     # Attendance policy. Blank clears the override and returns the course to
     # the institution default, which is the behaviour the placeholder promises.

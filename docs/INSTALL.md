@@ -386,7 +386,7 @@ page only comes into existence at step 6.
    you as its instructor. You should land in the app, signed in, on your
    course.
 7. **Now** open **Course → Settings**, which exists for the first time, and
-   set the geofence, the attendance policy and campus IP ranges. The roster
+   set the geofence and the attendance policy. The roster
    import, which takes a D2L Classlist export, is on the course page itself.
 
 ### The roster is reconciled only when you import a classlist

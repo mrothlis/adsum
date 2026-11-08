@@ -23,9 +23,9 @@ inside the timestamp window to mint a fresh session as that user.
 """
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'd90a2bca4b6c'

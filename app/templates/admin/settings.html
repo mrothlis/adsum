@@ -200,16 +200,6 @@
         </div>
     </div>
 
-    <div class="card">
-        <h2>Network / IP Settings</h2>
-        <p class="text-muted">Optional: restrict or flag check-ins from outside campus networks. Comma-separated CIDRs.</p>
-        <div class="form-group">
-            <label for="allowed_ip_ranges">Allowed IP Ranges</label>
-            <input type="text" id="allowed_ip_ranges" name="allowed_ip_ranges"
-                   value="{{ course.allowed_ip_ranges or '' }}"
-                   placeholder="e.g. 10.0.0.0/8, 172.16.0.0/12">
-        </div>
-    </div>
 
     {% if institution and not course.is_standalone %}
     <div class="card">

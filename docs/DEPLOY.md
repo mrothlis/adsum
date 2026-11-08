@@ -231,7 +231,7 @@ that actually works:
    email** and **Send user name**. All three.
 5. Click the link once. That launch creates the course, the instructor account
    and the enrolment. Only then does **Course → Settings** exist, for the
-   geofence, the attendance policy and the campus IP ranges; the roster import
+   geofence and the attendance policy; the roster import
    is on the course page itself.
 
 A fresh install has no courses and no way to create one in the interface, so

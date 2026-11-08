@@ -80,7 +80,6 @@ class Course(Base):
     geofence_lon: Mapped[Optional[float]] = mapped_column(Float)
     geofence_radius_m: Mapped[float] = mapped_column(Float, default=75.0)
     geofence_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    allowed_ip_ranges: Mapped[Optional[str]] = mapped_column(Text)  # comma-separated CIDRs
 
     # Attendance policy is a syllabus decision, so it belongs to the course,
     # not the server. NULL means "use the institution default from .env",
@@ -296,8 +295,6 @@ class AttendanceRecord(Base):
     gps_lat: Mapped[Optional[float]] = mapped_column(Float)
     gps_lon: Mapped[Optional[float]] = mapped_column(Float)
     gps_distance_m: Mapped[Optional[float]] = mapped_column(Float)
-    ip_address: Mapped[Optional[str]] = mapped_column(String(50))
-    ip_in_range: Mapped[Optional[bool]] = mapped_column(Boolean)
     status: Mapped[str] = mapped_column(String(20), default="present")  # present | late | invalid
 
     session: Mapped["Session"] = relationship(back_populates="attendance_records")

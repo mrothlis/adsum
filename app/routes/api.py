@@ -134,7 +134,6 @@ async def attendance_list(request: Request, session_id: int, db: AsyncSession = 
                 "status": r.status,
                 "checked_in_at": _local_hms(r.checked_in_at),
                 "distance_m": r.gps_distance_m,
-                "ip_in_range": r.ip_in_range,
             }
             for r in records
         ],

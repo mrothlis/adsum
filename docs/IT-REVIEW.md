@@ -99,8 +99,17 @@ column list in `app/models.py`.
 ### What a check in records
 
 Timestamp, the QR token used, the computed distance in metres from the
-classroom, whether the requesting IP fell inside configured campus ranges, the
-IP address, and the status (present, late, excused, absent).
+classroom when the geofence is enabled, and the status (present, late,
+excused, absent). That is the whole of it.
+
+**No network address is recorded against a student.** An earlier version
+stored the IP address of each check in and a flag for whether it fell inside a
+configured campus range. Both are gone, along with the campus range check
+itself: behind the reverse proxy this install guide recommends, every student
+appeared to arrive from the proxy's own address, so the stored value was
+identical on every row. It identified nobody while still looking like personal
+data, and the check it fed could not distinguish a student in the classroom
+from a student in a residence hall on the same network.
 
 **Raw GPS coordinates are deliberately not stored.** When the geofence is
 enabled, the browser's reported position is used to compute one distance and
@@ -360,7 +369,7 @@ is still your deploy step.
   attacks considered and the responses.
 - **Attendance fraud is possible and the design says so.** A student can scan
   the projected code and send it to someone outside the room within the few
-  seconds before it rotates. The geofence and campus IP range narrow this, and
+  seconds before it rotates. The optional geofence narrows this, and
   neither closes it. Adsum reduces the cost of taking attendance; it does not
   prove bodily presence, and the documentation does not claim it does.
 - **MIT licence means no warranty and no indemnification.** This is a real

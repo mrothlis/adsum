@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import math
 from typing import Optional, Tuple
 
@@ -34,26 +33,3 @@ def check_geofence(
     dist = haversine(student_lat, student_lon, fence_lat, fence_lon)  # type: ignore[arg-type]
     return dist <= fence_radius_m, round(dist, 1)
 
-
-def check_ip_range(ip_str: Optional[str], allowed_ranges: Optional[str]) -> Optional[bool]:
-    """Check whether *ip_str* falls within any of the comma-separated CIDR ranges.
-
-    Returns None if check cannot be performed (missing data), True/False otherwise.
-    """
-    if not ip_str or not allowed_ranges:
-        return None
-    try:
-        addr = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return None
-    for cidr in allowed_ranges.split(","):
-        cidr = cidr.strip()
-        if not cidr:
-            continue
-        try:
-            network = ipaddress.ip_network(cidr, strict=False)
-            if addr in network:
-                return True
-        except ValueError:
-            continue
-    return False
