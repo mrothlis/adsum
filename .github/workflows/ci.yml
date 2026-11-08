@@ -179,3 +179,13 @@ jobs:
       # the integration job rather than being left to a local run.
       - name: Standalone claim-once identity
         run: python scripts/test_standalone.py
+
+      # Grade integrity, end to end. This suite exists because test_scoring.py
+      # passed throughout while two defects were altering real grades: all four
+      # grade-bearing queries counted sessions that had not ended yet, so an
+      # export during a live class lowered everyone who had not yet scanned;
+      # and restore-from-d2l keyed sessions on the date, collapsing two
+      # meetings held on one day. Neither is visible without a real server and
+      # a real CSV, which is why this runs in the integration job.
+      - name: Grade integrity and D2L round trip
+        run: python scripts/test_grade_roundtrip.py

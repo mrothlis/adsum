@@ -665,7 +665,10 @@ remove their own rights or lock themselves out.
 
 - **Session cookies and QR tokens** are signed with `SECRET_KEY`
   (`itsdangerous`, HMAC-SHA256). Passwords use PBKDF2-SHA256.
-- **Login throttling**: five failures per IP, then a ten-minute lockout.
+- **Login throttling**: five failures per account or twenty-five per IP, then
+  a ten-minute lockout. Failures only, cleared on success. The per-IP limit
+  is deliberately looser because a campus network can put a whole building
+  behind one address.
 - **LTI 1.1 launches** are verified as OAuth 1.0a HMAC-SHA1 signatures; a bad
   signature is rejected.
 - **The app refuses to start** outside `DEBUG` with a placeholder or short
@@ -721,8 +724,12 @@ it from an export alone.
 
 ## Tests
 
-Six scripts. The linter and the live-instance scripts need the development
-dependencies as well as the runtime ones:
+`scripts/ci_local.sh` runs every suite in the same order CI does, and it is
+the authoritative list. Counting them in prose went wrong four separate times
+in four separate files, so this page no longer does.
+
+The linter and the live-instance scripts need the development dependencies as
+well as the runtime ones:
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
@@ -731,9 +738,11 @@ pip install -r requirements.txt -r requirements-dev.txt
 **No server needed:**
 
 ```bash
-python scripts/test_scoring.py           # grade arithmetic
+python scripts/test_scoring.py           # grade arithmetic, against exact fractions
+python scripts/test_migrations.py        # startup backs up, migrates, or refuses
+python scripts/test_accessibility.py     # the automatable part of WCAG 2.1 AA
 python scripts/verify_install.py         # clean-install check
-ruff check app scripts run.py backup_db.py
+ruff check app scripts run.py backup_db.py alembic/env.py
 ```
 
 **Need a running instance, and a course with at least one enrolled student:**

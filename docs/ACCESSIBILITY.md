@@ -1,6 +1,6 @@
 # Accessibility
 
-**Status: two defects found and fixed. Automated checks pass. This is not a
+**Status: four defects found and fixed. Automated checks pass. This is not a
 conformance claim.**
 
 Adsum has been audited with axe-core against the running application, plus a

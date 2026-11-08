@@ -66,15 +66,18 @@ need.
 
 ## Before opening a pull request
 
-Six scripts. Two need nothing but the code:
+Run `bash scripts/ci_local.sh`, which is exactly what CI runs. If you would
+rather run them one at a time, these need nothing but the code:
 
 ```bash
-python scripts/test_scoring.py           # grade arithmetic
+python scripts/test_scoring.py           # grade arithmetic, against exact fractions
+python scripts/test_migrations.py        # startup backs up, migrates, or refuses
+python scripts/test_accessibility.py     # the automatable part of WCAG 2.1 AA
 python scripts/verify_install.py         # clean install, from a git archive
-ruff check app scripts run.py backup_db.py
+ruff check app scripts run.py backup_db.py alembic/env.py
 ```
 
-Four need a running instance **and** a course with at least one enrolled
+The rest need a running instance **and** a course with at least one enrolled
 student:
 
 ```bash

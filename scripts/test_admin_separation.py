@@ -195,3 +195,6 @@ conn.close()
 print("\ncleaned up test professor and course")
 print("institution settings after:", inst())
 print("\n" + ("ALL CHECKS PASSED" if not fails else "FAILURES: " + ", ".join(fails)))
+# Exit non-zero on failure. This script had no sys.exit, so CI treated every
+# admin-separation result as a pass regardless of what it found.
+sys.exit(1 if fails else 0)

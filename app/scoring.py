@@ -112,6 +112,10 @@ class Score:
     forgiven: float        # how much of that the allowance absorbed
     counted_total: int     # denominator after excused removed
     pct: int               # 0-100, policy applied
+    # Lost credit minus forgiveness, in integer hundredths of a class. Kept
+    # alongside the float display fields because unexcused_over_limit must
+    # not be derived by subtracting two floats and rounding.
+    net_lost_x100: int = 0
 
     @property
     def attended(self) -> int:
@@ -129,8 +133,15 @@ class Score:
 
     @property
     def unexcused_over_limit(self) -> int:
-        """Whole classes of lost credit beyond the allowance."""
-        return max(0, _round_half_up(self.lost - self.forgiven))
+        """Whole classes of lost credit beyond the allowance.
+
+        Computed from the integer hundredths rather than from the float
+        display fields. Same reason as the grade itself: subtracting two
+        floats and rounding the result puts a boundary back in the hands of a
+        binary fraction, and this number decides whether a student is shown
+        as over the allowance.
+        """
+        return max(0, (2 * self.net_lost_x100 + 100) // 200)
 
 
 def score(total_sessions: int, present: int, late: int = 0, excused: int = 0,
@@ -157,16 +168,44 @@ def score(total_sessions: int, present: int, late: int = 0, excused: int = 0,
     late = min(late, counted_total - present)
     absent = max(0, counted_total - present - late)
 
-    credited = present + late * (late_credit / 100.0)
-    lost = max(0.0, counted_total - credited)
-    forgiven = min(lost, float(allowance))
+    # Everything below is integer arithmetic scaled by 100, and that is not a
+    # micro-optimisation: it is the same defect _round_half_up exists to
+    # prevent, reappearing one line later in the division instead of in the
+    # rounding.
+    #
+    # The old line was:
+    #     credited = present + late * (late_credit / 100.0)
+    #     pct = _round_half_up((credited + forgiven) / counted_total * 100)
+    # With 18 attended of 40 and 5 forgiven, the true value is 23/40*100 =
+    # exactly 57.5, which must round to 58. In binary floating point that
+    # expression is 57.49999999999999, so floor(x + 0.5) gave 57. Brute forced
+    # against fractions.Fraction over every reachable input, the float version
+    # disagreed with exact arithmetic 1,329 times, and was ALWAYS one point
+    # low -- never high. late_credit=100 is the default, so this was not
+    # confined to partial-credit courses: it touched every course.
+    #
+    # Every input here is an integer and every intermediate has denominator
+    # 100, so no float is needed at any point.
+    credited_x100 = present * 100 + late * late_credit
+    lost_x100 = max(0, counted_total * 100 - credited_x100)
+    forgiven_x100 = min(lost_x100, allowance * 100)
+
+    # Floats only for the display fields, never for the grade.
+    credited = credited_x100 / 100.0
+    lost = lost_x100 / 100.0
+    forgiven = forgiven_x100 / 100.0
 
     if counted_total <= 0:
         pct = 100
     else:
-        pct = _round_half_up((credited + forgiven) / counted_total * 100)
+        # Exactly half-up((credited + forgiven) / counted_total * 100),
+        # done with integers so no grade boundary is left to a binary
+        # fraction.
+        numerator = credited_x100 + forgiven_x100
+        pct = (2 * numerator + counted_total) // (2 * counted_total)
         pct = max(0, min(100, pct))
 
     return Score(present=present, late=late, excused=excused, absent=absent,
                  credited=credited, lost=lost, forgiven=forgiven,
-                 counted_total=counted_total, pct=pct)
+                 counted_total=counted_total, pct=pct,
+                 net_lost_x100=lost_x100 - forgiven_x100)

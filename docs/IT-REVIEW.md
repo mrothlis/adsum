@@ -176,13 +176,15 @@ should drive a condition of approval rather than a claim of compliance.
 What was done: axe-core 4.10.2 against the running application across the
 WCAG 2.0/2.1 A and AA rulesets, plus checks for the things axe cannot test
 (contrast with alpha compositing, focus visibility under real `Tab`
-keypresses, and reflow at 320 CSS pixels). Three defects were found and fixed:
+keypresses, and reflow at 320 CSS pixels). Four defects were found and fixed:
 placeholder text at 1.56:1 contrast on the typed-code page, an invalid
-`inputmode` value that silently disabled the mobile keyboard hint, and
-fourteen decorative emoji announced by screen readers. Two status emoji that
-carried meaning were given visually hidden text alternatives rather than being
-hidden. All pages now report zero axe violations, and the checks run on every
-push via `scripts/test_accessibility.py`.
+`inputmode` value that silently disabled the mobile keyboard hint, fourteen
+decorative emoji announced by screen readers, and a projector toggle that
+exposed no pressed state and destroyed its own screen-reader markup each time
+it was used. Two status emoji that carried meaning were given visually hidden
+text alternatives rather than being hidden. All pages now report zero axe
+violations, and the checks run on every push via
+`scripts/test_accessibility.py`.
 
 **Automated tooling catches roughly a third of WCAG failures**, so this is
 emphatically not a conformance claim. Full detail, including two measurement
@@ -325,8 +327,10 @@ validation nobody tests is a validation that silently regresses.
 
 These are regression tested, not asserted. `scripts/test_security.py` and
 `scripts/test_robustness.py` exercise each previously found hole, and the full
-suite of eleven scripts runs on every push via GitHub Actions. A reviewer can
-read the test files to see exactly what is claimed and verified.
+full suite in `scripts/ci_local.sh` runs on every push via GitHub Actions. A
+reviewer can read the test files to see exactly what is claimed and verified.
+`scripts/test_grade_roundtrip.py` is the one to read first: it proves that a
+round trip through the D2L gradebook returns every grade unchanged.
 
 ### What you are responsible for
 

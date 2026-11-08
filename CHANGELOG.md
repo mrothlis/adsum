@@ -6,6 +6,85 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — three defects that produced wrong grades
+
+A ten-agent review found these. All three were invisible to the existing test
+suite, and all three changed a number that goes into a gradebook.
+
+**Grades were rounded down at an exact half.** `score()` computed
+`(credited + forgiven) / counted_total * 100` in binary floating point. With
+18 attended of 40 and 5 forgiven, the true value is exactly 57.5 and must
+round to 58, but the expression evaluated to 57.49999999999999, so the
+half-up rounding produced 57. Checked against `fractions.Fraction` across
+every reachable input, the old code disagreed with exact arithmetic 1,329
+times and was **always one point low, never high**. The default late-credit
+setting is 100, so this was not confined to partial-credit courses: it touched
+every course. The percentage is now computed entirely in integers scaled by
+100, and `unexcused_over_limit` with it, so no grade boundary is left to a
+binary fraction. `scripts/test_scoring.py` now checks every grade against
+exact rational arithmetic rather than against the previous implementation's
+expectations, which is how the defect survived it.
+
+**Exporting during a live class lowered grades.** All four grade-bearing
+queries selected every session in the course, including one the instructor had
+opened and not yet closed. An open session is a class in progress: counting it
+put a meeting in the denominator that nobody had been given the chance to
+attend. On a three-session course, 100/50/50 exported to D2L as 67/50/50 while
+the QR code was still on the wall. There is now one definition of which
+sessions count, `_graded_sessions_stmt`, used by the gradebook export, the CSV
+export, the analytics page and the at-risk list. A session that has been
+closed with nobody present still counts, correctly: that is a class everyone
+missed.
+
+**Restore from D2L collapsed two meetings held on one day.** The restore
+grouped existing sessions into a dictionary keyed on the local date. Two
+meetings on one day is ordinary — a lab and a lecture, a Monday double period
+— and the ledger records them as two tokens carrying the same date. The
+dictionary kept only one, the duplicate guard then skipped the second token,
+and the absence won. A course standing at 100/50 came back as 100/100. The
+information was never missing from the export, only from that dictionary; the
+Nth token for a date now maps to the Nth session on that date.
+
+### Fixed — two test suites could not fail a build
+
+`scripts/test_isolation.py` and `scripts/test_admin_separation.py` both ended
+by printing `FAILURES: ...` and returning zero. Every cross-instructor
+privacy assertion and every admin-separation assertion in CI was decorative:
+the job went green no matter what leaked. Both now exit non-zero, verified by
+injecting a failure and confirming the exit code.
+
+`test_isolation.py` also finished by posting to `reset-data` on the course it
+had been pointed at, which deletes every session and attendance record in that
+course. Against seeded demo data that looked like tidying up; pointed at a
+real install, and `BASE_URL` is configurable, it silently destroyed a
+semester of attendance. It now deletes only the session it created.
+
+### Added — `scripts/test_grade_roundtrip.py`
+
+Drives a real server and reads the actual CSV D2L would import, because none
+of the above is observable without both. Proves that opening a session changes
+no grade, that closing an empty one correctly counts it, that deleting it
+restores the originals, and that an export/restore round trip returns every
+grade unchanged with both of a day's two meetings rebuilt.
+
+Every fixture sets the absence allowance and late credit to zero. The first
+draft used the default policy, where three absences are forgiven; forgiveness
+absorbed the missing meeting, so broken and correct code produced identical
+output and the suite passed against known-broken code.
+
+### Changed — documentation that contradicted the code
+
+- The login throttle was documented as "five failures per IP" in two places.
+  It is five per account **or** twenty-five per IP, then a ten-minute lockout.
+  The per-IP figure is the looser of the two deliberately, because a campus
+  network can put a whole building behind one address.
+- The number of test scripts was stated in four files and was wrong in all
+  four, with three different numbers. The counts are gone;
+  `scripts/ci_local.sh` is named as the authoritative list.
+- `docs/ACCESSIBILITY.md` claimed two defects in its header while its own body
+  described four, and `docs/IT-REVIEW.md` said three. It is four.
+
+
 ### Added — standalone mode: Adsum without an LMS
 
 A Course could only ever be created in two places, `app/routes/lti.py` and

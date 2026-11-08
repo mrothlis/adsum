@@ -195,6 +195,30 @@ async def _match_roster_student(db: AsyncSession, rec: dict):
     return None
 
 
+def _graded_sessions_stmt(course_id: int, newest_first: bool = False):
+    """Sessions that count towards a grade: the ones that have ENDED.
+
+    A session the instructor has not closed yet is a class still in progress.
+    Counting it puts a meeting in the denominator that nobody has had the
+    chance to attend, so every student's percentage drops for as long as the
+    QR code is on the wall.
+
+    This was a real defect, not a theoretical one. Exporting to the gradebook
+    during a live class turned 100/50/50 into 67/50/50 for a three-session
+    course, and the at-risk list flagged the whole room mid-lecture. Four
+    separate queries had the same omission, which is why there is now one
+    definition rather than four.
+
+    The live session page deliberately does NOT use this: it is showing the
+    open session, which is the whole point of it.
+    """
+    order = Session.started_at.desc() if newest_first else Session.started_at
+    return (select(Session)
+            .where(Session.course_id == course_id,
+                   Session.ended_at.is_not(None))
+            .order_by(order))
+
+
 def _roster_freshness(course: Course) -> dict:
     """Plain-language state of this course's last classlist import.
 
@@ -582,7 +606,7 @@ async def _compute_alerts(db: AsyncSession, course: Course) -> list:
     students = (await db.execute(enr_stmt)).scalars().all()
 
     # All sessions ordered by date
-    sess_stmt = select(Session).where(Session.course_id == course.id).order_by(Session.started_at)
+    sess_stmt = _graded_sessions_stmt(course.id)
     sessions = (await db.execute(sess_stmt)).scalars().all()
     session_ids = [s.id for s in sessions]
 
@@ -1269,7 +1293,7 @@ async def analytics(request: Request, course_id: int, db: AsyncSession = Depends
     if not course:
         return HTMLResponse("Course not found", status_code=404)
 
-    sess_stmt = select(Session).where(Session.course_id == course_id).order_by(Session.started_at)
+    sess_stmt = _graded_sessions_stmt(course_id)
     sessions = (await db.execute(sess_stmt)).scalars().all()
 
     # Per-session attendance counts
@@ -1318,7 +1342,7 @@ async def export_csv(request: Request, course_id: int, db: AsyncSession = Depend
     _policy = policy_for(course)
 
     sessions = (await db.execute(
-        select(Session).where(Session.course_id == course_id).order_by(Session.started_at)
+        _graded_sessions_stmt(course_id)
     )).scalars().all()
 
     # The active roster only. A dropped student's history stays in the app
@@ -1649,13 +1673,23 @@ async def restore_from_d2l(request: Request, course_id: int,
             "+In+D2L+use+Grades+%E2%86%92+Export+and+tick+Attendance+Detail.",
             status_code=302)
 
-    # Existing sessions by local date, so a restore lines up with reality.
+    # Existing sessions grouped by local date, as a LIST per date rather than
+    # one session per date.
+    #
+    # Two meetings on one day is ordinary (a lab and a lecture, a Monday
+    # double period), and the ledger records them as two tokens carrying the
+    # same date. Keying a dict on the date collapsed them: the second token
+    # found the first session, the duplicate guard below then skipped it, and
+    # the absence won. Measured on a three-session course, a round trip of
+    # export then restore turned 100/50/50 into 100/100/75. The information
+    # was never lost from the file, only from this dict.
     existing = (await db.execute(
-        select(Session).where(Session.course_id == course_id))).scalars().all()
-    by_date = {}
+        select(Session).where(Session.course_id == course_id)
+        .order_by(Session.started_at))).scalars().all()
+    by_date: dict[dt.date, list[Session]] = {}
     for s in existing:
         if s.started_at:
-            by_date[_to_local(s.started_at).date()] = s
+            by_date.setdefault(_to_local(s.started_at).date(), []).append(s)
 
     # Deliberately NOT filtered to the active roster: a dropped student's
     # ledger in the D2L export is real history, and this is the path that
@@ -1689,11 +1723,24 @@ async def restore_from_d2l(request: Request, course_id: int,
                 unknown_users.append(uname)
             continue
 
+        # Reset per row: each student's ledger is a complete record, so the
+        # Nth-occurrence counting has to start again for every student.
+        seen_for_day: dict[dt.date, int] = {}
+
         for day, status in entries:
-            session = by_date.get(day)
-            if session is None:
-                # Noon local, converted back to the naive UTC the app stores.
+            # The Nth token for a date maps to the Nth session on that date,
+            # so repeated dates line up instead of collapsing. The counter is
+            # per student row, because each row carries its own full ledger.
+            seen_for_day[day] = seen_for_day.get(day, 0) + 1
+            nth = seen_for_day[day] - 1
+            on_day = by_date.setdefault(day, [])
+
+            while len(on_day) <= nth:
+                # Noon local for the first meeting, then an hour later for
+                # each additional one, so repeated meetings on a day get
+                # distinct and stably ordered timestamps.
                 local_noon = dt.datetime(day.year, day.month, day.day, 12, 0)
+                local_noon += dt.timedelta(hours=len(on_day))
                 offset = settings.DISPLAY_UTC_OFFSET_HOURS
                 try:
                     from zoneinfo import ZoneInfo
@@ -1702,12 +1749,14 @@ async def restore_from_d2l(request: Request, course_id: int,
                         dt.timezone.utc).replace(tzinfo=None)
                 except Exception:
                     started = local_noon - dt.timedelta(hours=offset)
-                session = Session(course_id=course_id, started_at=started,
+                created = Session(course_id=course_id, started_at=started,
                                   ended_at=started + dt.timedelta(hours=1))
-                db.add(session)
+                db.add(created)
                 await db.flush()
-                by_date[day] = session
+                on_day.append(created)
                 sessions_made += 1
+
+            session = on_day[nth]
 
             if status is None:      # absent: represented by the lack of a record
                 continue
@@ -2114,7 +2163,7 @@ async def export_d2l(request: Request, course_id: int, db: AsyncSession = Depend
     _policy = policy_for(course)
 
     sessions = (await db.execute(
-        select(Session).where(Session.course_id == course_id).order_by(Session.started_at)
+        _graded_sessions_stmt(course_id)
     )).scalars().all()
 
     # The active roster only, and this one matters most: D2L rejects a row

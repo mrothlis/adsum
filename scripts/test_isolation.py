@@ -168,5 +168,18 @@ r = requests.post(f"{BASE}/instructor/session/{sid}/mark-present",
                   data={"student_id": str(TEST_STUDENT_ID)}, cookies=other, allow_redirects=False)
 check("other instructor cannot mark present", r.status_code in (302, 303, 404))
 
-requests.post(BASE + f"/instructor/course/{COURSE_ID}/reset-data", cookies=ck, allow_redirects=False)
+# Clean up ONLY the session this script created. The previous version called
+# reset-data on COURSE_ID, which deletes every session and attendance record
+# in that course. Against a developer's seeded demo data that looked like
+# tidying up; pointed at a real install (BASE_URL is configurable and the
+# default is a live local instance) it silently destroyed a semester of
+# attendance. A test may never delete data it did not create.
+if sid:
+    requests.post(f"{BASE}/instructor/session/{sid}/delete", cookies=ck,
+                  data={"confirm": "delete"}, allow_redirects=False)
+
 print("\n" + ("ALL CHECKS PASSED" if not fails else "FAILURES: " + ", ".join(fails)))
+# Exit non-zero on failure. Without this the script printed "FAILURES: ..."
+# and returned 0, so every isolation assertion in CI was decorative: the job
+# went green no matter what leaked between instructors.
+sys.exit(1 if fails else 0)

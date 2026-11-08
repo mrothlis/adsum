@@ -690,7 +690,8 @@ Install the development dependencies first, otherwise `ruff` is not present:
 pip install -r requirements-dev.txt
 ```
 
-There are twelve scripts. **Four need no server:**
+`scripts/ci_local.sh` is the authoritative list and runs them in CI's order.
+**These four need no server:**
 
 ```bash
 python scripts/test_scoring.py           # the grade arithmetic

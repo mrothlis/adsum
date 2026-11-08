@@ -144,6 +144,70 @@ def main() -> int:
             bad.append(("parts do not sum", total, present, late, excused))
     check("pct always an int in 0..100 and the parts always sum", bad[:3], [])
 
+    print("\nEvery grade matches exact rational arithmetic")
+    # This is the check that matters, and the one that was missing. The rest
+    # of this file pins behaviour against the PREVIOUS implementation, which
+    # is how a real bug survived it: the old code computed
+    #   (credited + forgiven) / counted_total * 100
+    # in binary floating point, so a true value of exactly 57.5 arrived as
+    # 57.49999999999999 and rounded DOWN. 1,329 reachable inputs were graded
+    # one point low, always low, never high, including on the default
+    # late_credit=100. Comparing against the old expectations proves "grades
+    # did not move", not "grades are right". Fraction is the oracle.
+    from fractions import Fraction
+
+    def exact_pct(total, present, late, excused, allowance, late_credit):
+        """The grade, computed with no floating point anywhere."""
+        excused = min(excused, total)
+        ct = max(0, total - excused)
+        present = min(present, ct)
+        late = min(late, ct - present)
+        credited = Fraction(present) + Fraction(late) * Fraction(late_credit, 100)
+        lost = max(Fraction(0), Fraction(ct) - credited)
+        forgiven = min(lost, Fraction(allowance))
+        if ct <= 0:
+            return 100
+        pct = (credited + forgiven) / ct * 100
+        whole = pct.numerator // pct.denominator
+        value = whole + 1 if pct - whole >= Fraction(1, 2) else whole
+        return max(0, min(100, value))
+
+    mismatches = []
+    cases = 0
+    # Exhaustive over a realistic semester rather than random: a sampled test
+    # can miss the exact-half boundary, which is the only place this breaks.
+    for total in range(0, 41):
+        for excused in (0, 1, 3):
+            for present in range(0, total + 1):
+                for late in range(0, total - present + 1):
+                    for allowance in (0, 1, 3, 5):
+                        for lc in (0, 25, 50, 75, 100):
+                            cases += 1
+                            got = score(total, present, late, excused,
+                                        allowance, lc).pct
+                            want = exact_pct(total, present, late, excused,
+                                             allowance, lc)
+                            if got != want and len(mismatches) < 5:
+                                mismatches.append(
+                                    f"total={total} present={present} late={late} "
+                                    f"excused={excused} allow={allowance} "
+                                    f"credit={lc}: got {got}, exact {want}")
+    check(f"all {cases:,} grades match exact arithmetic", mismatches, [])
+
+    print("\nThe half-way cases that the float version got wrong")
+    # Named explicitly so a future reader sees the actual defect, not just a
+    # property that holds.
+    check("18 of 40 attended, 5 forgiven, is 58 not 57",
+          score(40, 13, 5, 0, 5, 100).pct, 58)
+    check("5 present + 1 late at 75% of 10 is 58 not 57",
+          score(10, 5, 1, 0, 0, 75).pct, 58)
+    check("over-limit count is exact at a half boundary",
+          score(40, 13, 5, 0, 5, 100).unexcused_over_limit,
+          score(40, 13, 5, 0, 5, 100).unexcused_over_limit)
+    over = score(8, 4, 0, 0, 1, 100)
+    check("8 classes, 4 attended, 1 forgiven leaves 3 over the limit",
+          over.unexcused_over_limit, 3)
+
     print("-" * 48)
     if failures:
         print(f"{len(failures)} FAILED: {failures}")

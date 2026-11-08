@@ -38,7 +38,10 @@ hosting it accordingly.
 ## Security model
 
 - **Authentication.** Signed cookies (`itsdangerous`), PBKDF2-SHA256 password
-  hashing, and a login throttle of 5 failures per IP then a 10-minute lockout.
+  hashing, and a login throttle of 5 failures per account or 25 per IP, then
+  a 10-minute lockout. The per-IP figure is the looser of the two on purpose:
+  a whole campus can share one address, so a tight per-IP limit locks out
+  bystanders. Only failures are counted, and a success clears the counter.
 - **Authorization.** Every course and session route verifies that the signed-in
   instructor teaches that course. Institution-wide settings require `is_admin`.
   `scripts/test_isolation.py` and `scripts/test_admin_separation.py` assert
