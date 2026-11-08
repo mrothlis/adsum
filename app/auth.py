@@ -42,16 +42,17 @@ def create_session_token(data: dict) -> str:
     return _serializer.dumps(data)
 
 
-def decode_session_token(token: str, max_age: int = MAX_AGE) -> Optional[dict]:
-    """Return the payload dict or None if invalid/expired."""
-    try:
-        return _serializer.loads(token, max_age=max_age)
-    except (BadSignature, SignatureExpired):
-        return None
-
-
 def decode_session_with_issued_at(token: str, max_age: int = MAX_AGE):
     """Return (payload, issued_at) so a session can be revoked by age.
+
+    This is the ONLY decoder, deliberately. There used to be a plain
+    ``decode_session_token`` beside it that returned just the payload. It was
+    unused, but worse than unused: it looked like the obvious function to
+    reach for and it does not surface the issue time, so a caller using it
+    would silently skip the ``sessions_valid_from`` comparison in
+    ``get_current_user`` and accept a cookie that a password reset or a
+    deactivation was supposed to have invalidated. Dead code that is also a
+    plausible-looking shortcut past a security check is worth deleting twice.
 
     itsdangerous already embeds the signing time, so revocation needs no
     extra cookie field: comparing the issue time against an instructor's
