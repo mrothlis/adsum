@@ -313,10 +313,91 @@
     map.on('click', (e) => setPos(e.latlng.lat, e.latlng.lng));
     radIn.addEventListener('input', () => { circle.setRadius(parseFloat(radIn.value) || 0); });
 
-    document.getElementById('use-my-location').addEventListener('click', () => {
+    const geoBtn = document.getElementById('use-my-location');
+    // A status line rather than alert(). An alert cannot be read back, cannot
+    // be styled, and disappears the moment it is dismissed, which is no use
+    // when the message is an instruction about what to do instead.
+    const geoMsg = document.createElement('p');
+    geoMsg.id = 'geo-status';
+    geoMsg.className = 'text-muted';
+    geoMsg.setAttribute('role', 'status');      // announced without stealing focus
+    geoMsg.style.cssText = 'margin:0.5rem 0 0; font-size:0.9rem;';
+    geoBtn.insertAdjacentElement('afterend', geoMsg);
+
+    function geoSay(text) { geoMsg.textContent = text; }
+
+    geoBtn.addEventListener('click', () => {
+        if (!navigator.geolocation) {
+            geoSay('This browser cannot report a location. Click the map to '
+                 + 'place the pin, or type the latitude and longitude.');
+            return;
+        }
+        const original = geoBtn.textContent;
+        let settled = false;
+        geoBtn.disabled = true;
+        geoBtn.textContent = 'Finding your location\u2026';
+        geoSay('Asking the browser for your location.');
+
+        const done = (msg) => {
+            if (settled) return;        // first answer wins
+            settled = true;
+            clearTimeout(backstop);
+            geoBtn.disabled = false;
+            geoBtn.textContent = original;
+            if (msg) geoSay(msg);
+        };
+
+        // Wall-clock backstop, separate from the API's own timeout below.
+        // The Geolocation specification excludes the time spent waiting for
+        // the user to answer the permission prompt from that timeout, so a
+        // prompt nobody answers, or one the browser never shows, hangs the
+        // call forever: measured still pending after 36 seconds with the
+        // button stuck disabled and the page saying nothing. The API timeout
+        // alone cannot cover that case, which is the whole reason this
+        // exists.
+        const backstop = setTimeout(() => {
+            done('No answer from the browser about your location. There may '
+               + 'be a permission prompt waiting, or this browser may have no '
+               + 'location service. Click the map to place the pin instead.');
+        }, 20000);
+
         navigator.geolocation.getCurrentPosition(
-            (pos) => { setPos(pos.coords.latitude, pos.coords.longitude); map.setView([pos.coords.latitude, pos.coords.longitude], 17); },
-            () => alert("Couldn't get your location. Check browser location permissions.")
+            (pos) => {
+                setPos(pos.coords.latitude, pos.coords.longitude);
+                map.setView([pos.coords.latitude, pos.coords.longitude], 17);
+                const acc = Math.round(pos.coords.accuracy);
+                done(acc > 100
+                    ? 'Pin placed, but your browser is only accurate to about '
+                      + acc + ' m, which is wider than a classroom. Drag the '
+                      + 'pin to the right room before saving.'
+                    : 'Pin placed, accurate to about ' + acc + ' m.');
+            },
+            (err) => {
+                // The three cases need three different answers. The old
+                // handler said "check browser location permissions" for all of
+                // them, which is wrong advice for two thirds of the failures
+                // and actively misleading for the commonest one on a desktop:
+                // Chromium reports POSITION_UNAVAILABLE when its network
+                // location provider answers "error code 403", and no amount of
+                // changing permissions fixes that.
+                if (err.code === 1) {
+                    done('Your browser refused to share a location. Allow '
+                       + 'location for this site in the padlock menu, or just '
+                       + 'click the map to place the pin.');
+                } else if (err.code === 3) {
+                    done('Timed out waiting for a location. Click the map to '
+                       + 'place the pin instead.');
+                } else {
+                    done('This browser could not work out where it is. On a '
+                       + 'desktop with no GPS that is normal, and it often '
+                       + 'reports a 403 from its location service. Click the '
+                       + 'map to place the pin, or set it from your phone.');
+                }
+            },
+            // A timeout is not optional. Without one this call can hang
+            // forever with no success and no error: the button stays dead and
+            // the page never says anything. Measured hanging past 36 seconds.
+            { timeout: 15000, maximumAge: 0, enableHighAccuracy: true }
         );
     });
 })();
