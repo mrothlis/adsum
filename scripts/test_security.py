@@ -156,6 +156,120 @@ def main() -> int:
     check("a forged X-Forwarded-Host is not reflected either",
           "<script>alert(2)</script>" not in r.text)
 
+    print("\nAn LTI launch cannot take over a password account")
+    # This is the reason the launch refuses to adopt an account on a matching
+    # email. A launch is signed with ONE install-wide shared secret, and an
+    # LMS administrator can change a user's email address, so adoption on
+    # email alone would turn that secret into a master key for the admin
+    # account: a correctly signed launch carrying the admin's address would
+    # sign in as the admin with no password and no login throttle.
+    #
+    # The refusal now offers to LINK instead of dead-ending, so the property
+    # under test is not the status code but the absence of a session: a
+    # launch alone must never issue one.
+    import base64
+    import hashlib
+    import hmac
+    import secrets as _secrets
+    import time as _time
+    import urllib.parse as _up
+
+    row = db().execute(
+        "SELECT lti_consumer_key, lti_consumer_secret FROM institutions LIMIT 1"
+    ).fetchone()
+    if not row or not row[0]:
+        print("SKIP  no LTI consumer configured on this install")
+    else:
+        ckey, csecret = row
+        probe_email = "sec_link_probe@example.test"
+        conn = db()
+        conn.execute("DELETE FROM instructors WHERE email=?", (probe_email,))
+        # A password account with NO d2l_user_id: exactly the install-owner
+        # situation, where the first instructor already has a password.
+        conn.execute(
+            "INSERT INTO instructors (name,email,password_hash,is_admin,"
+            "is_active,lti_provisioned) VALUES (?,?,?,0,1,0)",
+            ("Sec Link Probe", probe_email,
+             "pbkdf2_sha256$1$deadbeef$deadbeef"))
+        conn.commit()
+
+        launch_url = f"{BASE_URL}/lti/launch"
+
+        def signed(params):
+            p = dict(params)
+            p.update({"oauth_consumer_key": ckey,
+                      "oauth_nonce": _secrets.token_hex(16),
+                      "oauth_signature_method": "HMAC-SHA1",
+                      "oauth_timestamp": str(int(_time.time())),
+                      "oauth_version": "1.0"})
+            norm = "&".join(
+                f"{_up.quote(k, '~')}={_up.quote(str(p[k]), '~')}"
+                for k in sorted(p))
+            base_str = "&".join(["POST", _up.quote(launch_url, "~"),
+                                 _up.quote(norm, "~")])
+            p["oauth_signature"] = base64.b64encode(hmac.new(
+                (_up.quote(csecret, "~") + "&").encode(),
+                base_str.encode(), hashlib.sha1).digest()).decode()
+            return p
+
+        body = {"lti_message_type": "basic-lti-launch-request",
+                "lti_version": "LTI-1p0",
+                "resource_link_id": "sec-link-rl",
+                "user_id": "SEC-LINK-PROBE-D2L",
+                "roles": "urn:lti:role:ims/lis/Instructor",
+                "lis_person_contact_email_primary": probe_email,
+                "lis_person_name_full": "Sec Link Probe",
+                "context_id": "seclink1",
+                "context_title": "Sec Link Probe Course"}
+
+        sess = requests.Session()
+        r = sess.post(launch_url, data=signed(body), timeout=30,
+                      allow_redirects=False)
+        check("a signed launch does NOT sign in as the password account",
+              "adsum_session" not in sess.cookies.get_dict(),
+              f"status {r.status_code}, cookies {list(sess.cookies.get_dict())}")
+        check("and it does not redirect into the app",
+              r.status_code != 302, str(r.status_code))
+        check("it offers to link instead of dead-ending",
+              r.status_code == 409 and "onnect" in r.text, str(r.status_code))
+
+        # Holding the link cookie alone must not be enough.
+        r = sess.post(f"{BASE_URL}/instructor/link-d2l", timeout=30,
+                      allow_redirects=False)
+        check("linking without a password session is refused",
+              r.status_code == 401, str(r.status_code))
+        still = db().execute(
+            "SELECT d2l_user_id FROM instructors WHERE email=?",
+            (probe_email,)).fetchone()
+        check("and nothing was bound to the account",
+              still is not None and still[0] is None, str(still))
+
+        # Signed in as a DIFFERENT account, the link must be refused: letting
+        # it through would attach somebody else's D2L identity to this
+        # account, which is the same takeover in reverse.
+        sess.cookies.set("adsum_session", admin["adsum_session"],
+                         domain=_up.urlparse(BASE_URL).hostname)
+        r = sess.post(f"{BASE_URL}/instructor/link-d2l", timeout=30,
+                      allow_redirects=False)
+        check("linking to a different signed-in account is refused",
+              r.status_code == 403, str(r.status_code))
+        admin_row = db().execute(
+            "SELECT d2l_user_id FROM instructors WHERE email=?",
+            (ADMIN_EMAIL,)).fetchone()
+        check("the admin account did not acquire the D2L identity",
+              admin_row is None or admin_row[0] != "SEC-LINK-PROBE-D2L",
+              str(admin_row))
+
+        conn = db()
+        cid = conn.execute(
+            "SELECT id FROM courses WHERE d2l_org_unit_id='seclink1'").fetchone()
+        if cid:
+            conn.execute("DELETE FROM course_enrollments WHERE course_id=?", (cid[0],))
+            conn.execute("DELETE FROM lti_launches WHERE course_id=?", (cid[0],))
+            conn.execute("DELETE FROM courses WHERE id=?", (cid[0],))
+        conn.execute("DELETE FROM instructors WHERE email=?", (probe_email,))
+        conn.commit()
+
     print("\nSecurity headers are present")
     r = requests.get(f"{BASE_URL}/", timeout=30)
     csp = r.headers.get("content-security-policy", "")

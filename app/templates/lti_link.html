@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Connect your D2L account | Adsum{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:40rem;">
+    <h1>Connect your D2L account</h1>
+
+    <p>
+        You already have an Adsum account for
+        <strong>{{ email }}</strong>, created with a password. This is the
+        first time you have opened Adsum from
+        {% if institution %}{{ institution }}{% else %}your LMS{% endif %},
+        so the two need connecting once.
+    </p>
+
+    <p class="text-muted">
+        Adsum will not join them on the strength of a matching email address
+        alone. A launch from your LMS is signed with one shared secret, and an
+        LMS administrator can change somebody's email, so an email match by
+        itself would be a way into your account. Connecting needs proof of
+        both: this launch, and your Adsum password.
+    </p>
+
+    <form method="post" action="/instructor/link-d2l" style="margin-top:1.5rem;">
+        <button type="submit" class="btn btn-primary btn-block">
+            Connect this D2L account to {{ email }}
+        </button>
+    </form>
+
+    <p class="text-muted" style="margin-top:1rem;">
+        If you are not signed in to Adsum yet, you will be asked for your
+        password first and brought straight back here. You only have to do
+        this once; after that, opening Adsum from your LMS signs you
+        in automatically.
+    </p>
+
+    <p class="text-muted" style="margin-top:1rem;">
+        <strong>Not expecting this?</strong> Close this page and do nothing.
+        Nothing has changed, and no link is made until you press the button
+        above while signed in.
+    </p>
+</div>
+{% endblock %}

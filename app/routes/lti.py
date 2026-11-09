@@ -26,7 +26,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import hash_password, set_session_cookie
+from app.auth import (
+    LTI_LINK_COOKIE,
+    LTI_LINK_MAX_AGE,
+    create_session_token,
+    hash_password,
+    set_session_cookie,
+)
 from app.clock import utc_now
 from app.config import settings
 from app.database import get_db
@@ -39,6 +45,7 @@ from app.models import (
     LtiNonce,
     Student,
 )
+from app.templating import templates
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["lti"])
@@ -224,12 +231,49 @@ async def lti_launch(request: Request, db: AsyncSession = Depends(get_db)):
                 instructor = candidate
                 instructor.d2l_user_id = user_id
             elif candidate:
-                log.warning("LTI launch refused to adopt password account %r", email)
-                return HTMLResponse(
-                    "<h2>Account Already Exists</h2>"
-                    "<p>There is already an Adsum account for your email "
-                    "address. Sign in with your password instead.</p>",
-                    status_code=403)
+                # NOT a dead end any more, but still not an adoption.
+                #
+                # The person who installs Adsum is almost always also its
+                # first instructor, so they have a password account AND a D2L
+                # identity, and this refusal made the D2L launch permanently
+                # unusable for them. That is the primary path and the whole
+                # point of the product, so "sign in with your password
+                # instead" was telling the one user who matters most to stop
+                # using the main feature.
+                #
+                # Adopting on a matching email is still refused, for the
+                # reason above it: a launch is signed with one install-wide
+                # shared secret, and a D2L administrator can change a user's
+                # email address, so email alone would make that secret a
+                # master key for the admin account.
+                #
+                # Instead, linking requires BOTH identities to be proved:
+                # this signed launch (the D2L half) and a password session
+                # (the Adsum half). The launch cannot read the session cookie,
+                # because it is a cross-site POST and the cookie is
+                # SameSite=Lax, but it CAN set one. So the D2L identity is
+                # handed back in a short-lived signed cookie and the actual
+                # linking happens on a same-site GET, which does carry the
+                # password session. Forging a launch is not enough; an
+                # attacker would also need the victim's session cookie.
+                log.info("LTI launch offered account linking for %r", email)
+                resp = templates.TemplateResponse(
+                    request, "lti_link.html",
+                    {"email": email, "name": name,
+                     "institution": institution.name if institution else None},
+                    status_code=409)
+                resp.set_cookie(
+                    LTI_LINK_COOKIE,
+                    create_session_token({
+                        "d2l_user_id": user_id,
+                        "email": email,
+                        "name": name,
+                    }),
+                    max_age=LTI_LINK_MAX_AGE, httponly=True,
+                    samesite="lax", secure=settings.BASE_URL.startswith("https"),
+                    path="/",
+                )
+                return resp
         if not instructor:
             instructor = Instructor(name=name, email=email or f"lti_{user_id}@d2l.local",
                                     password_hash=hash_password(secrets.token_urlsafe(32)),

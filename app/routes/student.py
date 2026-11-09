@@ -17,7 +17,6 @@ from app.auth import get_current_user
 from app.clock import utc_now
 from app.database import get_db
 from app.geo import check_geofence
-from app.main import templates
 from app.models import (
     AttendanceRecord,
     ClaimConflict,
@@ -31,6 +30,7 @@ from app.models import (
 )
 from app.qr import CODE_LENGTH, generate_token, resolve_code, verify_token
 from app.scoring import policy_for
+from app.templating import templates
 
 log = logging.getLogger("adsum.student")
 router = APIRouter(prefix="/student", tags=["student"])

@@ -15,6 +15,16 @@ from app.config import settings
 _serializer = URLSafeTimedSerializer(settings.SECRET_KEY)
 
 COOKIE_NAME = "adsum_session"
+
+# The one-time D2L linking cookie. Lives in auth.py because both the LTI
+# launch (which sets it) and the instructor routes (which consume it) need the
+# name, and auth.py is already imported by both while importing neither.
+#
+# Ten minutes: long enough to sign in with a password if you were not already,
+# short enough that a cookie left on a shared classroom machine is not a
+# standing offer to bind somebody else's D2L identity to your account.
+LTI_LINK_COOKIE = "adsum_lti_link"
+LTI_LINK_MAX_AGE = 600
 MAX_AGE = 60 * 60 * 12  # 12 hours
 
 

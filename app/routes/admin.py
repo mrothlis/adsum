@@ -37,8 +37,8 @@ from app.authz import require_admin
 from app.clock import utc_now
 from app.config import settings
 from app.database import get_db
-from app.main import templates
 from app.models import Course, CourseEnrollment, Institution, Instructor
+from app.templating import templates
 
 log = logging.getLogger("adsum.admin")
 router = APIRouter(prefix="/admin", tags=["admin"])

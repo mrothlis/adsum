@@ -26,7 +26,7 @@ def _local_hms(value) -> str:
     """Format a naive-UTC timestamp as local wall-clock time for the live table."""
     if value is None:
         return ""
-    from app.main import _to_local
+    from app.templating import _to_local
     return _to_local(value).strftime("%H:%M:%S")
 
 

@@ -26,7 +26,10 @@ from app.attendance import (
     tally_by_student,
 )
 from app.auth import (
+    LTI_LINK_COOKIE,
+    LTI_LINK_MAX_AGE,
     clear_session_cookie,
+    decode_session_with_issued_at,
     get_current_user,
     set_session_cookie,
     verify_password,
@@ -41,7 +44,6 @@ from app.authz import (
 from app.clock import utc_now
 from app.config import settings
 from app.database import get_db
-from app.main import _to_local, templates
 from app.models import (
     COURSE_MODE_D2L,
     COURSE_MODE_STANDALONE,
@@ -67,6 +69,7 @@ from app.scoring import (
     policy_for,
     score,
 )
+from app.templating import _to_local, templates
 
 log = logging.getLogger("adsum.instructor")
 router = APIRouter(prefix="/instructor", tags=["instructor"])
@@ -403,7 +406,13 @@ async def login(
     if instructor and verify_password(password, instructor.password_hash):
         for key, _limit in keys:
             _login_fails.pop(key, None)
-        resp = RedirectResponse("/instructor/dashboard", status_code=302)
+        # Straight back to finish a D2L link if a launch offered one, rather
+        # than dropping the instructor on the dashboard having apparently
+        # ignored what they were in the middle of. The cookie is signed and
+        # short-lived; _pending_d2l_link validates it.
+        destination = ("/instructor/link-d2l"
+                       if _pending_d2l_link(request) else "/instructor/dashboard")
+        resp = RedirectResponse(destination, status_code=302)
         set_session_cookie(resp, {
             "role": "instructor",
             "instructor_id": instructor.id,
@@ -431,6 +440,141 @@ async def login(
     return templates.TemplateResponse(request, "login.html", {
         "error": "Invalid email or password.",
     }, status_code=401)
+
+
+def _pending_d2l_link(request: Request) -> dict | None:
+    """The D2L identity a launch offered to link, or None.
+
+    Read from the short-lived cookie the launch set. Signed with SECRET_KEY
+    and age-checked, so the browser cannot invent one: holding this cookie
+    proves a correctly signed LTI launch happened recently for that D2L user.
+    """
+    raw = request.cookies.get(LTI_LINK_COOKIE)
+    if not raw:
+        return None
+    payload, _issued = decode_session_with_issued_at(raw, max_age=LTI_LINK_MAX_AGE)
+    if not isinstance(payload, dict) or not payload.get("d2l_user_id"):
+        return None
+    return payload
+
+
+@router.get("/link-d2l", response_class=HTMLResponse)
+async def link_d2l_page(request: Request):
+    """Confirm page for connecting a D2L identity to a password account.
+
+    Reached either straight from the launch's offer page or after signing in,
+    because the launch itself cannot see the session cookie: it is a
+    cross-site POST and the cookie is SameSite=Lax. This GET is same-site, so
+    both the link cookie and the session cookie arrive together, which is the
+    whole mechanism.
+    """
+    pending = _pending_d2l_link(request)
+    if not pending:
+        return templates.TemplateResponse(request, "lti_link_result.html", {
+            "ok": False,
+            "heading": "That link request has expired",
+            "detail": "Open Adsum from your LMS again to start over. The "
+                      "request is only valid for ten minutes.",
+        }, status_code=400)
+    return templates.TemplateResponse(request, "lti_link.html", {
+        "email": pending.get("email"),
+        "name": pending.get("name"),
+        "institution": None,
+        "signed_in": bool(get_current_user(request)),
+    })
+
+
+@router.post("/link-d2l")
+async def link_d2l(request: Request, db: AsyncSession = Depends(get_db)):
+    """Bind a D2L user id to the signed-in instructor's account.
+
+    Both halves of the identity must be proved in this one request:
+
+    * the link cookie, which is signed and short-lived, proves a correctly
+      signed LTI launch happened for that D2L user;
+    * the session cookie proves possession of the Adsum password.
+
+    Forging a launch is therefore not enough. An attacker would also need the
+    victim's session cookie, at which point they are already signed in as
+    them and linking gains them nothing.
+    """
+    pending = _pending_d2l_link(request)
+    if not pending:
+        return templates.TemplateResponse(request, "lti_link_result.html", {
+            "ok": False,
+            "heading": "That link request has expired",
+            "detail": "Open Adsum from your LMS again to start over.",
+        }, status_code=400)
+
+    user = get_current_user(request)
+    if not user or user.get("role") != "instructor":
+        # Not signed in yet. The cookie survives, so signing in and coming
+        # back finishes the job; login redirects here automatically when it
+        # sees the cookie.
+        return templates.TemplateResponse(request, "login.html", {
+            "error": "Sign in with your Adsum password to finish connecting "
+                     "your D2L account.",
+            "linking_email": pending.get("email"),
+        }, status_code=401)
+
+    instructor = await active_instructor(db, user)
+    if not instructor:
+        return RedirectResponse("/", status_code=302)
+
+    # The account being linked must be the one the launch named. Without
+    # this, anyone who could get a launch offer for address A could sign in
+    # as address B and attach A's D2L identity to B's account, which is the
+    # account-takeover this whole dance exists to prevent, just reversed.
+    launch_email = (pending.get("email") or "").strip().lower()
+    if not launch_email or launch_email != (instructor.email or "").strip().lower():
+        log.warning("D2L link refused: launch was for %r, signed in as %r",
+                    launch_email, instructor.email)
+        resp = templates.TemplateResponse(request, "lti_link_result.html", {
+            "ok": False,
+            "heading": "Those are different accounts",
+            "detail": "The launch came from your LMS as "
+                      f"{launch_email or 'an unknown address'}, but you are "
+                      f"signed in to Adsum as {instructor.email}. Sign in as "
+                      "the matching account, or ask an administrator to "
+                      "reconcile the two addresses.",
+        }, status_code=403)
+        resp.delete_cookie(LTI_LINK_COOKIE, path="/")
+        return resp
+
+    d2l_user_id = str(pending["d2l_user_id"])
+
+    # Somebody else may already hold this D2L identity. Two accounts sharing
+    # one d2l_user_id would make the launch's primary lookup ambiguous, which
+    # is the ambiguity the launch resolves FIRST, so it would silently decide
+    # who you are.
+    holder = (await db.execute(select(Instructor).where(
+        Instructor.d2l_user_id == d2l_user_id,
+        Instructor.id != instructor.id,
+    ).limit(1))).scalars().first()
+    if holder:
+        log.warning("D2L link refused: %r already holds d2l_user_id", holder.email)
+        resp = templates.TemplateResponse(request, "lti_link_result.html", {
+            "ok": False,
+            "heading": "That D2L account is already connected",
+            "detail": "Another Adsum account is already connected to this D2L "
+                      "identity. An administrator can disconnect it first.",
+        }, status_code=409)
+        resp.delete_cookie(LTI_LINK_COOKIE, path="/")
+        return resp
+
+    instructor.d2l_user_id = d2l_user_id
+    await db.commit()
+    log.info("D2L identity linked to instructor %r", instructor.email)
+
+    resp = templates.TemplateResponse(request, "lti_link_result.html", {
+        "ok": True,
+        "heading": "Connected",
+        "detail": "Your D2L account is now connected. Opening Adsum from "
+                  "your LMS will sign you in from here on, and your password "
+                  "still works as well.",
+    })
+    resp.delete_cookie(LTI_LINK_COOKIE, path="/")
+    return resp
 
 
 @router.post("/logout")

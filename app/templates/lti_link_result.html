@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} | Adsum{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:40rem;">
+    <h1>
+        <span aria-hidden="true">{% if ok %}&#9989;{% else %}&#9888;&#65039;{% endif %}</span>
+        {{ heading }}
+    </h1>
+
+    <p>{{ detail }}</p>
+
+    {% if ok %}
+    <p style="margin-top:1.5rem;">
+        <a href="/instructor/dashboard" class="btn btn-primary">Go to your courses</a>
+    </p>
+    {% else %}
+    <p style="margin-top:1.5rem;">
+        <a href="/instructor/dashboard" class="btn btn-outline">Go to your courses</a>
+    </p>
+    {% endif %}
+</div>
+{% endblock %}
