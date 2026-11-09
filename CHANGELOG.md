@@ -85,6 +85,76 @@ output and the suite passed against known-broken code.
   described four, and `docs/IT-REVIEW.md` said three. It is four.
 
 
+### Added: a container deployment, and a Linux deployment guide
+
+An institution's IT team asks how to run this before it asks anything else,
+and the honest answer was "no container, and the Linux path is 27 lines in
+the install guide". Both are fixed.
+
+`Dockerfile` and `docker-compose.yml` are the supported container path.
+Non-root, read-only root filesystem, all capabilities dropped,
+`no-new-privileges`, bounded logs so an install cannot fill its own disk and
+take the database with it, and the port published on `127.0.0.1` only so the
+container is unreachable except through a reverse proxy.
+
+Deliberately not `--proxy-headers` or `--forwarded-allow-ips`. Adsum reads
+`X-Forwarded-For` itself through one helper governed by `TRUSTED_PROXY_IPS`,
+and the login throttle's per-address limit depends on that answer. Two
+mechanisms deciding the same thing is a defect waiting to happen, and the
+permissive form of that flag would let anyone who can reach the port claim
+any address and evade the throttle.
+
+Three writes had to move out of the application directory before a
+read-only filesystem could work, so three settings are new. All default to
+exactly their previous paths, so no existing install changes:
+
+- `BACKUP_DIR`, which `backup_db.py` had hardcoded to `backups/` next to
+  itself.
+- `STATE_DIR`, for the `.migration-failed` marker. This one is
+  load-bearing: that marker is what stops a failed migration being retried
+  on every restart, so it must not itself be the write that fails.
+- `BACKUP_KEEP`, which existed but was undocumented.
+
+`docs/DEPLOY-LINUX.md` is a worked Linux deployment for both paths, with
+configuration, backups and restores, upgrades, monitoring, the reverse
+proxy, and a section on what to tell a security reviewer. `docs/DEPLOY.md`
+is renamed `docs/DEPLOY-WINDOWS.md` so neither is the implied default.
+`docs/README.md` is an index that routes a reader by who they are.
+
+`deploy/` holds configuration to copy rather than prose to retype: nginx and
+Caddy server blocks, a systemd unit with `ProtectSystem=strict` and a single
+`ReadWritePaths`, and a backup service with a timer. The two proxy settings
+people get wrong are marked in place. Buffering is the worse one: with it on,
+the live attendance list arrives in a batch minutes late or never, so the
+instructor watches a projector page that looks frozen while students check
+in successfully and nothing in any log says why.
+
+A CI job builds the image and exercises it on real Docker, which is the only
+thing that ever has: the machine this was written on has none. It checks
+that no `.env`, database, credentials or git history is baked into any
+layer; that an unconfigured container refuses to start and names the missing
+setting; that it starts, migrates itself and serves over a read-only root;
+that Docker's own `HEALTHCHECK` reaches healthy; that the backup lands on the
+volume; that data survives a restart with no failure marker; and that
+`docker compose config` parses.
+
+### Changed: `HOST` defaults to the loopback
+
+`.env.example` shipped `HOST=0.0.0.0` with a warning attached. Following the
+quick start therefore published a fresh install, over plain HTTP with no
+certificate, to anyone who could route to the machine. It is now
+`127.0.0.1`, which is also correct in production behind a reverse proxy on
+the same host. The container sets `0.0.0.0` itself, because a container has
+to accept connections from outside its own network namespace, and the
+compose file then publishes the port on the loopback only.
+
+### Fixed: two README claims that the code contradicted
+
+The quick start said there is no "new course" button anywhere in the
+interface. There is one, and the dashboard links to it twice. It also said
+`HOST` defaults to `0.0.0.0`, which was true of `.env.example` and not of
+the code.
+
 ### Removed: standalone mode
 
 Adsum identifies a student in exactly one way: D2L vouches for them through

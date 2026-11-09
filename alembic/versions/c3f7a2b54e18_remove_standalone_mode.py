@@ -38,8 +38,9 @@ themselves cannot be restored, because a binding is a claim a specific
 phone made and nothing else records it. That is why this file is a one-way
 door in practice even though the downgrade runs cleanly.
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "c3f7a2b54e18"
 down_revision = "b8c4e1f29a07"

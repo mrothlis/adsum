@@ -198,10 +198,27 @@ once from inside your D2L course; after that their phone is known.
 | D2L | A course you can add an External Learning Tool link to, on a Brightspace site where LTI 1.1 is still enabled |
 | Network | A public HTTPS URL students' phones can reach |
 
-No container runtime, no message queue, no Redis. It is one Python process and
-a file.
+No message queue, no cache server, no second database. It is one Python
+process and a file.
+
+A container runtime is **optional**, not required: `docker compose up -d` is a
+supported deployment, and so is a virtualenv under systemd. See
+[Deployment](#deployment).
 
 ## Quick start
+
+With Docker, which is the shortest path to a running server:
+
+```bash
+git clone https://github.com/mrothlis/adsum.git
+cd adsum
+cp .env.example .env
+# Edit .env: SECRET_KEY, ADMIN_EMAIL, ADMIN_PASSWORD, BASE_URL, INSTITUTION_NAME
+docker compose up -d
+docker compose exec adsum python scripts/verify_install.py
+```
+
+Or without a container runtime:
 
 ```bash
 git clone https://github.com/mrothlis/adsum.git
@@ -219,14 +236,17 @@ python run.py
 Open `http://127.0.0.1:8000` and sign in with the admin credentials from
 `.env`. The admin account is created automatically on an empty database.
 
-`HOST` defaults to `0.0.0.0`, which means the server is reachable from your
-whole network over plain HTTP, not just from `127.0.0.1`. For a local try-out
-on a laptop on a shared or campus network, set `HOST=127.0.0.1` in `.env`.
+`HOST` is `127.0.0.1` in `.env.example`, so the server answers only on this
+machine. That is also the right setting in production behind a reverse proxy
+on the same host. Set `0.0.0.0` only when something on another machine has to
+reach it directly.
 
-**The dashboard will be empty, and that is expected.** There is no "new
-course" button anywhere in the interface: courses, instructor accounts and
-enrolments are created by the first LTI launch from D2L. Until you have
-connected D2L there is nothing to look at and nothing to take attendance for.
+**The dashboard will be empty, and that is expected.** Courses, instructor
+accounts and enrolments are normally created by the first LTI launch from
+D2L. You can create a course yourself from **Dashboard → New course** to set
+up the roster, attendance policy and geofence ahead of time, but students
+cannot check in until they can open Adsum from D2L, because D2L is what tells
+Adsum who they are.
 
 So do this instead, on a throwaway database, to see the app working before you
 touch D2L:
@@ -686,8 +706,25 @@ All of them run on every push via
 [docs/INSTALL.md](docs/INSTALL.md) is the full guide: hosting options, HTTPS
 via reverse proxy or tunnel, running under systemd or Task Scheduler, backups,
 upgrades, verification and troubleshooting.
-[docs/DEPLOY.md](docs/DEPLOY.md) is a worked Windows deployment, with Task
-Scheduler, a nightly backup task and a tunnel.
+Two worked deployments, for whoever administers the server:
+
+- **[docs/DEPLOY-LINUX.md](docs/DEPLOY-LINUX.md)** is the one an institutional
+  IT team wants. Containers with `docker compose`, or a virtualenv under
+  systemd, then a reverse proxy in front. Includes backups and restores,
+  upgrades, monitoring, and what to tell a security reviewer.
+- **[docs/DEPLOY-WINDOWS.md](docs/DEPLOY-WINDOWS.md)** is a worked Windows
+  deployment, with Task Scheduler, a nightly backup task and a tunnel.
+
+Configuration to copy rather than retype lives in `deploy/`: nginx and Caddy
+server blocks, a systemd unit, and a backup service with a timer.
+
+```bash
+# The short version, on a host with Docker:
+git clone https://github.com/mrothlis/adsum.git && cd adsum
+cp .env.example .env     # set SECRET_KEY, ADMIN_PASSWORD, ADMIN_EMAIL, BASE_URL
+docker compose up -d
+docker compose exec adsum python scripts/verify_install.py
+```
 
 Two proxy details are worth knowing, because both fail silently:
 

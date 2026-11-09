@@ -12,7 +12,7 @@ machine you install it on except the requests you make to your own D2L.
 
 | Requirement | Notes |
 | --- | --- |
-| A machine to run it on | Any Linux, macOS or Windows host. A 1 vCPU / 1 GB VM is ample for a department. There is no Dockerfile and no compose file in this repository, so a container runtime is not a supported path today. |
+| A machine to run it on | Any Linux, macOS or Windows host. A 1 vCPU / 1 GB VM is ample for a department. A container runtime is optional: `docker compose up -d` is supported and tested in CI, and so is a virtualenv under systemd. See [DEPLOY-LINUX.md](DEPLOY-LINUX.md). |
 | Python 3.11 or newer | |
 | A public HTTPS address | Students scan a QR code with their phones; their browsers must reach the server. |
 | A D2L Brightspace course | You need permission to add an External Learning Tool link, which instructors normally have, on a Brightspace site where LTI 1.1 is still enabled. See section 6. |
@@ -520,7 +520,9 @@ the interpreter you installed the dependencies into. That key is read by the
 launcher, not by the app, so put it in `.env` and do not add it to
 `.env.example`.
 
-[DEPLOY.md](DEPLOY.md) is a complete worked Windows deployment.
+[DEPLOY-LINUX.md](DEPLOY-LINUX.md) is a complete worked Linux deployment,
+with containers or systemd. [DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md) is the
+Windows equivalent.
 
 ---
 
