@@ -173,7 +173,6 @@ once from inside your D2L course; after that their phone is known.
 - Mark present, unmark, or excuse anyone, including on a session that already
   ended
 - Optional per-course geofence with a map picker, off by default
-- Optional campus-IP restriction
 
 **Grading**
 - Per-course attendance policy: forgiven absences, late threshold, and whether
@@ -535,8 +534,8 @@ not decide how many absences a colleague's students are allowed.
 Two scopes, two places, and the split is deliberate.
 
 **Course settings** live at `Course → Settings`, owned by the instructor who
-teaches it: name, D2L org unit, deep link, attendance policy, geofence and
-campus IPs. Everything here stops at the course boundary.
+teaches it: name, D2L org unit, deep link, attendance policy and the
+geofence. Everything here stops at the course boundary.
 
 **Administration** lives at `/admin`, admin-only: instructor accounts, the
 shared D2L host and LTI credentials, and a read-only install health panel.

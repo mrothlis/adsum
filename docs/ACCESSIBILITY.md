@@ -41,7 +41,6 @@ Audited against the running application, not against the templates:
 |---|---|
 | `student/checkin.html` | Every student, every class |
 | `student/code.html` | A student whose camera will not focus |
-| `student/claim.html` | A student in standalone mode, at first check in |
 | `instructor/session.html` | The live session and the projector view |
 | `instructor/course_detail.html` | The roster and settings |
 | `login.html` | Everyone signing in |

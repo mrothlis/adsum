@@ -85,113 +85,114 @@ output and the suite passed against known-broken code.
   described four, and `docs/IT-REVIEW.md` said three. It is four.
 
 
-### Added: standalone mode (Adsum without an LMS)
+### Removed: standalone mode
 
-A Course could only ever be created in two places, `app/routes/lti.py` and
-`app/seed.py`, and a student's identity at check-in came only from the signed
-session cookie an LTI launch issues. Those two facts were the whole of the
-app's dependency on D2L, and they meant a fresh install's dashboard was
-permanently empty for anyone without Brightspace, and that Adsum would stop
-working when D2L retires LTI 1.1 (no new 1.1 integrations after the February
-2027 release; launches stop late 2027).
+Adsum identifies a student in exactly one way: D2L vouches for them through
+an LTI launch. The second path is gone.
 
-- **Courses can be created in the interface.** *Dashboard → New course*, owned
-  by the instructor who creates it. The dashboard's empty state now offers
-  both paths honestly (launch from D2L, or create one here) instead of
-  explaining that there is no button on purpose. A course created this way
-  works with everything that already existed: roster import with add/drop
-  reconciliation, sessions, the rotating QR, the typed code, per-course
-  policy, the geofence, campus IP ranges and the exports.
-- **Identity is a per-course mode.** `courses.mode` is `d2l` or `standalone`,
-  NOT NULL with a server default of `d2l`, so every existing row, including
-  the live course, keeps the LMS path and nothing about it changes. In
-  standalone mode the D2L-only settings (org unit id, deep link) and the
-  Brightspace import instructions are hidden rather than shown broken, and the
-  gradebook export becomes "download a CSV for whatever gradebook you use".
-- **Claim-once device binding.** With no LMS there is no cookie to read, so
-  the first time a student scans they pick their own name from the roster;
-  that binds their phone and checks them in **in the same request**. There is
-  no two-scan problem here because there is no login round trip. Every later
-  scan is silent, exactly as before.
+Standalone mode let a course run with no LMS. A student scanned, picked their
+own name from the roster, and that phone was bound to that name for the term.
+It was the weaker path and the interface said so, because at that first scan
+a student could pick a classmate's name. The mitigations were real but all
+after the fact: one active binding per student per course, the refused second
+attempt recorded and shown to the instructor, and a release button. None of
+them stop the first wrong claim. They only make it visible afterwards, and
+only if the instructor is looking.
 
-### Security: the limits of a claimed identity, enforced
+One identity path means no mode to choose, no weaker door to reason about,
+and no trade to explain.
 
-Standalone identity is weaker than an LMS vouching for a student, so the
-guards around it are the feature:
+Standalone mode was added after `v1.0.0` was tagged and removed before the
+next release, so no released version ever had it. Its changelog entries have
+been removed rather than kept and contradicted.
 
-- **A claim requires a valid, current QR token.** Claiming is only possible
-  from inside a live check-in, with a token that passes the same verification
-  a check-in does. Without this, anybody on the internet could bind themselves
-  to a student's name, and identity would no longer be tied to being in the
-  room. A correctly signed but out-of-date token is refused like any other.
-- **One active binding per student per course, enforced by the database.** A
-  partial unique index on `device_bindings(course_id, student_id) WHERE
-  released_at IS NULL`, following `uq_sessions_one_open_per_course`, because a
-  SELECT-then-INSERT loses the race between two phones claiming at the same
-  moment. The second device is **refused**: never silently allowed, never
-  silently moved. The route catches `IntegrityError` rather than returning
-  500. One phone also cannot hold two names.
-- **The device cookie is unforgeable and scoped.** Signed with the app's
-  existing `itsdangerous` machinery under its **own salt**, so an instructor
-  session cookie is not a valid device cookie and vice versa. It carries the
-  course, the student and the binding row, is named per course, and is
-  long-lived (about ten months) because it is the student's identity for the
-  term. It is `HttpOnly`, `SameSite=Lax` and `Secure` when `BASE_URL` is
-  HTTPS, like the session cookie. Revocation does not wait for the clock: the
-  binding row is re-read on every scan, so a release signs that phone out
-  immediately.
-- **The roster is not published.** The "who are you?" list shows **names
-  only**, never student ID numbers or usernames, which are education records.
-  It offers only students on the **active** roster, so somebody a classlist
-  import marked as dropped cannot be claimed.
-- **Claim attempts are rate limited**, following the typed-code pattern:
-  failures only, cleared on success, over a short window, so a student who
-  taps the wrong thing is not locked out in front of a class.
-- **Every claim, refused claim and release is logged.**
+Dropped: the `device_bindings` and `claim_conflicts` tables, the
+`courses.mode` column, `app/devices.py`, the `/student/claim` route and its
+template, the release and review routes, the mode choice on New Course and
+Course Settings, and `scripts/test_standalone.py`.
 
-### Added: instructor control over bindings
+Kept: the typed six-character code, which is not a second identity path. The
+student is still identified by their D2L launch; typing the code only
+replaces scanning the image, for a camera that will not focus. The geofence
+and manual mark-present are unchanged, and so is instructor password login.
 
-- The course page lists which phone is checked in as which student and when,
-  with a **Release** action for a new phone, a lost phone or a wrong name.
-  **Releasing deletes no attendance**: attendance belongs to the student, not
-  to the device.
-- **Refused claims are shown at the top of the course page**, by name and
-  time, as a permanent notice until the instructor acknowledges them. That is
-  the main defence against a mistaken or malicious bind, because it is the
-  only signal that reaches the person who can fix it while the class is still
-  in the room. Acknowledged conflicts are marked reviewed, not deleted.
+Migration `c3f7a2b54e18`. A course that was running standalone keeps every
+record it had. Its students cannot check in until they open Adsum from D2L,
+because that is now the only thing that can say who they are.
 
-### Migration
+### Removed: the campus-IP check
 
-`a7f3c1d05b84`, additive and reversible: adds `courses.mode`, the
-`device_bindings` and `claim_conflicts` tables, and the partial unique index.
-Tested up, down and up again against a copy of a real backup, with attendance
-records intact in every direction; the downgrade touches no attendance.
+A course could restrict check-ins to configured campus IP ranges. Measured
+three ways, it failed in three directions, so it is removed rather than
+fixed.
 
-### Documentation
+- **It blocked the whole class.** The check read the raw peer address instead
+  of the trusted-proxy-aware helper the login throttle uses. Behind the
+  reverse proxy the install guide recommends, every student arrives as the
+  proxy, so with any range configured the check refused everyone.
+- **It could not produce a true positive.** Campus WiFi reaches the residence
+  halls. A student in their room passes and is indistinguishable from one in
+  the third row.
+- **It produced false negatives.** A student in the classroom on cellular
+  data, which is the common case for a quick scan, was refused.
 
-README and `docs/INSTALL.md` carry a standalone section that states the trade
-rather than selling it: the rotating QR still proves the student is in the
-room, but at the first scan a student could claim a classmate's name, which is
-why one binding per student is enforced, why conflicts are surfaced, and why
-bindings can be released. Both say plainly that the D2L/LTI path gives
-stronger identity because the LMS vouches for it, that single sign-on would
-remove claim-time impersonation entirely and is a known future option that
-**does not exist today**, and that standalone mode is what keeps the tool
-usable as D2L retires LTI 1.1. `docs/INSTALL.md` section 11 also now lists all
-nine test scripts; it had drifted to six.
+A control that cannot produce a true positive, cannot avoid a false positive,
+and does produce false negatives is worse than nothing, because it invites an
+instructor to rely on it.
 
-### Tests
+`attendance_records.ip_address` and `ip_in_range` are dropped with it. They
+recorded a network address against a named student on every check-in, and
+behind a proxy that value was identical on every row: it identified nobody
+while still reading as personal data. `docs/IT-REVIEW.md`, `SECURITY.md` and
+the institutional packet said the IP was stored and now say it is not.
 
-`scripts/test_standalone.py` pins every invariant above: a claim with no
-token, a malformed token, a forged signature and an expired token are all
-refused with nothing written; a second device cannot claim a bound student;
-the database itself refuses a second active binding row; a dropped student is
-not claimable and is not on the list; five kinds of hand-made device cookie
-identify nobody; a binding for one course does not identify in another;
-releasing preserves attendance and frees the name; and a standalone course
-never shows a D2L setting. Added to `scripts/ci_local.sh` **and** the
-integration job in `.github/workflows/ci.yml` together.
+The geofence is unaffected. It measures distance from the room rather than
+membership of a network, it stays optional and off by default, and any
+student it refuses can be marked present by the instructor.
+
+Migration `b8c4e1f29a07`.
+
+### Added: connect a D2L account to an existing password account
+
+An LTI launch for an email that already had a password account answered
+"Account Already Exists. Sign in with your password instead." and stopped
+there. Whoever installs Adsum is almost always also its first instructor, so
+they have both a password account and a D2L identity with the same email,
+and that message told them to stop using the primary path.
+
+The refusal was correct and stays. Adopting an account on a matching email
+would be unsafe: a launch is signed with one install-wide shared secret and
+an LMS administrator can change a user's email address, so email alone would
+make that secret a master key for the admin account.
+
+Linking instead requires both identities to be proved. A signed, ten-minute
+cookie proves a correctly signed launch happened for that D2L user, and the
+session cookie proves possession of the password. Forging a launch is not
+enough, because an attacker would also need the victim's session cookie, at
+which point they are already signed in as them.
+
+The launch cannot read the session cookie, because it is a cross-site POST
+and the cookie is `SameSite=Lax`. It can set one, so the D2L identity is
+handed back in a cookie and the linking happens on a same-site request,
+which does carry the session.
+
+Refused, each with its own message: an expired request, a session signed in
+as a different account than the launch named, and a D2L identity already held
+by another account. Signing in while a link is pending returns to finish it.
+
+`scripts/test_security.py` gains the property the original guard existed for
+and which nothing had been testing: a launch alone never issues a session
+cookie.
+
+### Changed: `templates` moved out of `app/main.py`
+
+Route modules imported `templates` from `app/main.py`, which also imports the
+routers, so the cycle worked only by luck of ordering. Adding one import to
+`app/routes/lti.py` made `import app.routes.lti` fail outright with
+`ImportError: cannot import name 'router' from partially initialized module`.
+The Jinja environment and the timezone helpers now live in
+`app/templating.py`, which imports nothing from `app.main`, and every route
+module can be imported on its own.
 
 ### Added: the classlist import is a reconciliation, not an append
 

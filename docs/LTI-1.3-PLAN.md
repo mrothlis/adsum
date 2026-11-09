@@ -35,8 +35,6 @@ Two consequences:
    replacement is "one administrator action per institution, then every
    instructor self serves."
 
-Standalone mode is unaffected by all of this and needs no LMS at all.
-
 ---
 
 ## 2. What 1.3 buys beyond survival
@@ -291,7 +289,7 @@ Collected so they are designed for rather than discovered.
 6. Phase 5 only when a real 1.1 install needs migrating.
 
 Keep the 1.1 path for Brightspace instances before the cutoff and for Moodle
-and Canvas. Keep standalone mode independent of all of it.
+and Canvas.
 
 ---
 
