@@ -1,0 +1,39 @@
+# One backup run. Triggered by adsum-backup.timer, not enabled directly.
+#
+#   cp deploy/systemd/adsum-backup.{service,timer} /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now adsum-backup.timer
+#   systemctl list-timers adsum-backup.timer
+#
+# Safe to run while a class is checking in: SQLite's online backup API takes
+# a consistent snapshot without locking writers out. That is the whole
+# reason this is a Python script rather than a cp, which would copy the
+# database without its WAL sidecar and produce a backup missing the most
+# recent check-ins.
+
+[Unit]
+Description=Adsum database backup
+Documentation=https://github.com/mrothlis/adsum
+# Nothing to back up if the app has never run, but do not FAIL in that case:
+# a fresh install would report a broken timer on day one.
+After=adsum.service
+
+[Service]
+Type=oneshot
+User=adsum
+Group=adsum
+WorkingDirectory=/opt/adsum
+EnvironmentFile=/opt/adsum/.env
+Environment=DATABASE_URL=sqlite+aiosqlite:////var/lib/adsum/adsum.db
+Environment=BACKUP_DIR=/var/lib/adsum/backups
+Environment=STATE_DIR=/var/lib/adsum
+ExecStart=/opt/adsum/.venv/bin/python /opt/adsum/backup_db.py
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/adsum
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=adsum-backup

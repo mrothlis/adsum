@@ -1,0 +1,130 @@
+# Adsum, the supported container deployment.
+#
+#   1. cp .env.example .env
+#   2. Set SECRET_KEY, ADMIN_PASSWORD, ADMIN_EMAIL, BASE_URL and
+#      INSTITUTION_NAME in .env. The app refuses to start otherwise, by
+#      design: see docs/DEPLOY-LINUX.md section 3.
+#   3. docker compose up -d
+#   4. docker compose exec adsum python scripts/verify_install.py
+#
+# Adsum speaks plain HTTP on 127.0.0.1:8000 and expects something in front
+# of it to terminate TLS. Students scan a QR code with a phone camera, and a
+# phone will not open an untrusted certificate, so HTTPS is not optional.
+# docs/DEPLOY-LINUX.md section 5 has working nginx and Caddy configuration,
+# including the one setting people get wrong (buffering breaks the live
+# attendance list).
+
+services:
+  adsum:
+    build: .
+    image: adsum:latest
+    container_name: adsum
+    restart: unless-stopped
+
+    # 127.0.0.1 deliberately, not 0.0.0.0. Binding only the loopback means
+    # the container cannot be reached from the network except through your
+    # reverse proxy, so there is no way to arrive at Adsum over plain HTTP
+    # with a spoofable client address. Change this and you have published an
+    # unencrypted attendance system.
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    env_file:
+      - .env
+
+    environment:
+      # Set inside the container regardless of what .env says, because these
+      # are facts about the container rather than choices.
+      DATABASE_URL: "sqlite+aiosqlite:////data/adsum.db"
+      BACKUP_DIR: "/data/backups"
+      # The .migration-failed marker. On the volume because the image is
+      # read-only, and because that marker is what prevents a failed
+      # migration being retried on every restart.
+      STATE_DIR: "/data"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+
+      # The reverse proxy's address, so Adsum knows whose X-Forwarded-For to
+      # believe. The login throttle's per-address limit depends on this: with
+      # it unset, every request appears to come from the proxy and one
+      # student's failures count against everybody. With it set wrongly, a
+      # client can claim any address and evade the throttle entirely.
+      #
+      # On the default bridge network the proxy reaches the container from
+      # the Docker gateway, so this is the gateway's address and not the
+      # proxy's LAN address. Confirm yours:
+      #   docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'
+      TRUSTED_PROXY_IPS: "${TRUSTED_PROXY_IPS:-172.17.0.1}"
+
+    volumes:
+      # Everything that must outlive the container: the database, its WAL
+      # sidecars and the backups. Destroy this volume and you have destroyed
+      # the attendance that has not been exported to D2L.
+      - adsum-data:/data
+
+    # Hardening. Nothing is written inside the image, so denying it costs
+    # nothing and removes a class of problem.
+    read_only: true
+    tmpfs:
+      # SQLite and Python both want somewhere for temporary files, and
+      # read_only takes /tmp away. noexec and nosuid because nothing here
+      # should ever be executed.
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # Modest, and far above what a campus needs. Mainly a blast radius: a
+    # runaway process cannot take the host down with it.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+
+    # docker logs with a bound, so a long-running install cannot fill the
+    # disk with its own logs and take the database down with it.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4).status==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  # Nightly backup, in the same image so it needs no Python on the host.
+  # SQLite's online backup API takes a consistent snapshot without locking
+  # writers out, so this is safe while a class is checking in.
+  #
+  # Run it on a schedule from the host, which is simpler to reason about and
+  # to monitor than a sleeping container:
+  #   docker compose run --rm backup
+  # See docs/DEPLOY-LINUX.md section 7 for the systemd timer.
+  backup:
+    build: .
+    image: adsum:latest
+    profiles: ["tools"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "sqlite+aiosqlite:////data/adsum.db"
+      BACKUP_DIR: "/data/backups"
+    volumes:
+      - adsum-data:/data
+    command: ["python", "backup_db.py"]
+    restart: "no"
+
+volumes:
+  adsum-data:
+    # A named volume rather than a bind mount, so the database cannot be
+    # deleted by tidying up the application directory. To put it on a
+    # specific disk, replace this with a bind mount to that path and make
+    # sure uid 10001 can write to it.
+    name: adsum-data

@@ -1,0 +1,47 @@
+# Adsum behind Caddy.
+#
+# Copy to /etc/caddy/Caddyfile, replace attendance.example.edu with your
+# hostname, then:
+#   caddy validate --config /etc/caddy/Caddyfile
+#   systemctl reload caddy
+#
+# Caddy obtains and renews the TLS certificate itself, which is why it is
+# the shorter of the two options. It needs ports 80 and 443 reachable from
+# the internet for the ACME challenge, and a DNS name already pointing here.
+
+attendance.example.edu {
+	# Adsum sets its own Content-Security-Policy and framing headers per
+	# route, because an LTI launch needs different framing rules from the
+	# instructor pages. Do not add those here: a blanket header would
+	# override a per-route decision.
+	header Strict-Transport-Security "max-age=31536000"
+
+	reverse_proxy 127.0.0.1:8000 {
+		# Adsum's login throttle limits failures per account and per
+		# address. Caddy sets X-Forwarded-For by default, which is
+		# what makes that per-address limit meaningful, but Adsum
+		# only believes it when TRUSTED_PROXY_IPS in .env names this
+		# server. Set both or neither.
+		header_up X-Real-IP {remote_host}
+
+		# The live attendance list is server-sent events. Caddy does
+		# not buffer responses by default, so unlike nginx there is
+		# nothing to switch off here. The long timeout is still
+		# needed: the stream stays open for the whole class.
+		flush_interval -1
+		transport http {
+			read_timeout 24h
+			write_timeout 24h
+		}
+	}
+
+	# A classlist CSV and a grade export are both small, but the default
+	# limit refuses a large course's roster with no useful message.
+	request_body {
+		max_size 16MB
+	}
+
+	log {
+		output file /var/log/caddy/adsum.log
+	}
+}

@@ -33,9 +33,29 @@ from app.config import settings
 log = logging.getLogger("adsum.migrate")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _state_dir() -> str:
+    """Where Adsum writes state that is not the database itself.
+
+    Defaults to the application directory, which is what every existing
+    install expects. STATE_DIR overrides it, and must be set when the
+    application directory is not writable: a container image is read-only
+    and only its data volume can be written to.
+
+    This matters more than a path usually would. The marker below is what
+    stops a failed migration being retried forever, and if writing it raises
+    then the safety mechanism is the thing that breaks.
+    """
+    configured = os.getenv("STATE_DIR")
+    if configured:
+        return os.path.abspath(os.path.expanduser(configured))
+    return BASE_DIR
+
+
 # Records a migration that failed, so the restart loop stops trying it. Holds
 # the revision pair, so a different pending migration later is still attempted.
-FAILED_MARKER = os.path.join(BASE_DIR, ".migration-failed")
+FAILED_MARKER = os.path.join(_state_dir(), ".migration-failed")
 
 
 def _sync_url() -> str:

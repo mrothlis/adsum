@@ -1,0 +1,51 @@
+# Keep secrets, data and local clutter out of the build context.
+#
+# This file is a security control, not housekeeping. Without it, COPY . .
+# would bake .env (SECRET_KEY, ADMIN_PASSWORD, the LTI secret) and adsum.db
+# (every student's name and attendance) into an image that people push to
+# registries. Anything listed here cannot end up in a layer.
+
+# Secrets and real data. The first three are the ones that matter.
+.env
+.env.*
+!.env.example
+CREDENTIALS.txt
+*.db
+*.db-wal
+*.db-shm
+backups/
+.migration-failed
+
+# Version control and CI.
+.git
+.github
+.gitignore
+.gitattributes
+
+# Python local state.
+.venv
+venv
+__pycache__/
+*.py[cod]
+.pytest_cache
+.ruff_cache
+*.egg-info
+
+# Editor and OS noise.
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Logs and scratch.
+*.log
+server.log
+scratch/
+tmp/
+
+# Documentation and images are not needed at runtime and are the bulk of the
+# tree. The image stays small and the docs stay on GitHub, where a reader
+# can actually follow their links.
+docs/
+*.md
+!README.md

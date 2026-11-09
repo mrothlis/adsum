@@ -1,0 +1,93 @@
+# Adsum application service, for a Linux install without containers.
+#
+#   install -d -o adsum -g adsum /opt/adsum /var/lib/adsum
+#   cp deploy/systemd/adsum.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now adsum
+#   systemctl status adsum
+#
+# Expects the checkout at /opt/adsum with a virtualenv at /opt/adsum/.venv,
+# owned by a dedicated unprivileged 'adsum' user, and writable state under
+# /var/lib/adsum. See docs/DEPLOY-LINUX.md.
+
+[Unit]
+Description=Adsum attendance
+Documentation=https://github.com/mrothlis/adsum
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=adsum
+Group=adsum
+WorkingDirectory=/opt/adsum
+
+# .env holds SECRET_KEY, ADMIN_PASSWORD and the LTI secret. Mode 0600 owned
+# by the adsum user: EnvironmentFile is read by systemd as root before
+# dropping privileges, so the app never needs to read it itself.
+EnvironmentFile=/opt/adsum/.env
+
+# The database, its WAL sidecars, the backups and the .migration-failed
+# marker all live outside the checkout, so deploying new code cannot touch
+# them and ProtectSystem below can stay strict.
+Environment=DATABASE_URL=sqlite+aiosqlite:////var/lib/adsum/adsum.db
+Environment=BACKUP_DIR=/var/lib/adsum/backups
+Environment=STATE_DIR=/var/lib/adsum
+Environment=PYTHONUNBUFFERED=1
+
+# Bind to the loopback only. Something in front terminates TLS: a phone
+# camera will not open a page over plain HTTP, so Adsum is never the public
+# listener. Set TRUSTED_PROXY_IPS in .env to your proxy's address, or the
+# login throttle counts every student's failures against one address.
+#
+# NOT --proxy-headers. Adsum reads X-Forwarded-For through one helper
+# governed by TRUSTED_PROXY_IPS; letting uvicorn rewrite the client address
+# as well gives two mechanisms deciding the same thing, and the permissive
+# form of that flag lets anyone reaching the port claim any address and so
+# evade the throttle.
+ExecStart=/opt/adsum/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8000 --no-server-header --log-level info
+
+# Reload on SIGHUP is not supported, so a config change needs a restart.
+Restart=on-failure
+RestartSec=5s
+
+# Give in-flight requests a moment. A class checking in is the worst
+# possible time for a hard kill, and the only long-lived connections are the
+# live attendance streams, which reconnect on their own.
+TimeoutStopSec=20s
+KillSignal=SIGTERM
+
+# Hardening. The application writes nothing inside its own directory, so
+# almost all of this costs nothing.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+# The ONLY writable path. ProtectSystem=strict makes everything else
+# read-only, which is why DATABASE_URL, BACKUP_DIR and STATE_DIR above all
+# point in here.
+ReadWritePaths=/var/lib/adsum
+# No raw sockets, no obscure address families. AF_UNIX stays for logging.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Journald, so logs are rotated and queryable with journalctl -u adsum.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=adsum
+
+[Install]
+WantedBy=multi-user.target

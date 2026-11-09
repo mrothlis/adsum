@@ -1,0 +1,26 @@
+# Nightly backup schedule.
+#
+#   systemctl enable --now adsum-backup.timer
+#
+# Check it is actually running, because a timer that silently never fires
+# looks identical to one that works until the day you need the backup:
+#   systemctl list-timers adsum-backup.timer
+#   journalctl -u adsum-backup --since yesterday
+
+[Unit]
+Description=Nightly Adsum database backup
+Documentation=https://github.com/mrothlis/adsum
+
+[Timer]
+# Late evening, after classes. Adsum keeps BACKUP_KEEP copies (14 by
+# default) and prunes older ones, so this does not grow without bound.
+OnCalendar=*-*-* 21:00:00
+# Run on the next boot if the machine was off at 21:00. A VM that is
+# rebooted for patching in the evening would otherwise skip that night
+# entirely and nobody would notice.
+Persistent=true
+# Spread the load if several services share this host.
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

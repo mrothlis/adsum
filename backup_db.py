@@ -2,7 +2,13 @@
 
 Safe to run while the app is serving: the online backup API takes a
 consistent snapshot without locking writers out. Keeps the most recent
-BACKUP_KEEP copies in backups/.
+BACKUP_KEEP copies in BACKUP_DIR (default: backups/ next to this file).
+
+Set BACKUP_DIR when the application directory is not writable, which is the
+normal case in a container: the image is read-only and the database lives on
+a mounted volume, so the backups have to land on that volume too. Pointing it
+at a different disk is also the only way a backup survives losing the one the
+database is on.
 
 Run manually, or on a schedule (cron / Task Scheduler) -- see docs/INSTALL.md.
 
@@ -16,7 +22,6 @@ import sqlite3
 import sys
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-DEST_DIR = os.path.join(BASE, "backups")
 KEEP = int(os.getenv("BACKUP_KEEP", "14"))
 
 
@@ -30,6 +35,22 @@ def _from_env_file(key: str, default: str = "") -> str:
     except OSError:
         pass
     return default
+
+
+def backup_dir() -> str:
+    """Where backups are written.
+
+    BACKUP_DIR wins, then the .env file, then backups/ next to this script.
+    Resolved through the same .env reader as DATABASE_URL so a scheduled run
+    with a bare environment behaves like a manual one.
+    """
+    configured = os.getenv("BACKUP_DIR") or _from_env_file("BACKUP_DIR", "")
+    if configured:
+        return os.path.abspath(os.path.expanduser(configured))
+    return os.path.join(BASE, "backups")
+
+
+DEST_DIR = backup_dir()
 
 
 def database_path() -> str:

@@ -181,3 +181,155 @@ jobs:
       # a real CSV, which is why this runs in the integration job.
       - name: Grade integrity and D2L round trip
         run: python scripts/test_grade_roundtrip.py
+
+  # The container deployment, exercised rather than assumed. This job exists
+  # because the Dockerfile and docker-compose.yml were written on a machine
+  # with no Docker installed, so CI is the only thing that has ever run them.
+  # It must stay: a container image that nobody builds rots silently, and the
+  # first person to find out would be an IT team on a deadline.
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t adsum:ci .
+
+      # A built image must carry no secrets and no institution's data. If
+      # .dockerignore stops working, this is what notices. The database file
+      # matters most: it holds every student's name and attendance.
+      - name: The image contains no secrets and no data
+        run: |
+          set -eu
+          leaked=0
+          for path in /app/.env /app/adsum.db /app/CREDENTIALS.txt /app/.git; do
+            if docker run --rm --entrypoint sh adsum:ci -c "test -e $path"; then
+              echo "LEAKED into the image: $path"
+              leaked=1
+            fi
+          done
+          test "$leaked" = "0" || exit 1
+          echo "no .env, no database, no credentials, no git history in the image"
+
+      # Refusing to start unconfigured is a feature, so it is tested. An
+      # install that silently came up with a placeholder SECRET_KEY would
+      # issue forgeable session cookies.
+      - name: An unconfigured container refuses to start
+        run: |
+          set -eu
+          if docker run --rm adsum:ci > out.txt 2>&1; then
+            echo "FAIL: started with no configuration"
+            cat out.txt
+            exit 1
+          fi
+          grep -qi "SECRET_KEY" out.txt || { echo "FAIL: refusal does not name the problem"; cat out.txt; exit 1; }
+          echo "refused, and said why"
+
+      # The real thing: run it the way the compose file does, read-only root
+      # filesystem and all, and prove it serves. read_only is the setting
+      # most likely to break, because the app writes a database, backups and
+      # the .migration-failed marker, and all three had to be moved onto the
+      # volume for it to work.
+      - name: It starts, migrates itself and serves over a read-only root
+        run: |
+          set -eu
+          docker volume create adsum-ci-data
+          docker run -d --name adsum-ci \
+            --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --security-opt no-new-privileges:true --cap-drop ALL \
+            -v adsum-ci-data:/data \
+            -e SECRET_KEY="$(head -c 48 /dev/urandom | base64 | tr -d '\n')" \
+            -e ADMIN_PASSWORD='ci-not-a-real-password-012345' \
+            -e ADMIN_EMAIL='ci@example.edu' \
+            -e INSTITUTION_NAME='Example State University' \
+            -e BASE_URL='http://127.0.0.1:8000' \
+            -p 127.0.0.1:8000:8000 \
+            adsum:ci
+
+          for i in $(seq 1 45); do
+            if curl -fsS --max-time 3 http://127.0.0.1:8000/healthz > /dev/null 2>&1; then
+              echo "healthy after ${i}s"; break
+            fi
+            if [ "$i" = "45" ]; then
+              echo "FAIL: never became healthy"; docker logs adsum-ci; exit 1
+            fi
+            sleep 1
+          done
+
+          curl -fsS http://127.0.0.1:8000/healthz | grep -q '"ok"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)" = "200"
+          echo "sign-in page served"
+
+          # It runs as a non-root user. Running as root inside a container is
+          # the finding an IT security review will raise first.
+          test "$(docker exec adsum-ci id -u)" != "0"
+          echo "running as uid $(docker exec adsum-ci id -u), not root"
+
+          # The schema was applied by the app itself, on the volume.
+          docker exec adsum-ci test -f /data/adsum.db
+          echo "database created on the volume"
+
+      # Docker's own health check, which is what an orchestrator restarts on.
+      # A HEALTHCHECK that never reports healthy would make the container
+      # restart forever in production while looking fine in a manual test.
+      - name: Docker reports the container healthy
+        run: |
+          set -eu
+          for i in $(seq 1 60); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' adsum-ci)
+            [ "$status" = "healthy" ] && { echo "HEALTHCHECK: healthy"; exit 0; }
+            [ "$status" = "unhealthy" ] && { echo "FAIL: unhealthy"; docker logs adsum-ci; exit 1; }
+            sleep 2
+          done
+          echo "FAIL: still $status after 120s"; docker logs adsum-ci; exit 1
+
+      # The backup must work against the running database and land on the
+      # volume. A backup path that is not writable is only discovered on the
+      # day the backup is needed.
+      - name: The backup service writes to the volume
+        run: |
+          set -eu
+          docker run --rm -v adsum-ci-data:/data \
+            -e DATABASE_URL='sqlite+aiosqlite:////data/adsum.db' \
+            -e BACKUP_DIR='/data/backups' \
+            -e SECRET_KEY='not-used-by-the-backup-script-0123456789abcd' \
+            -e ADMIN_PASSWORD='not-used' \
+            adsum:ci python backup_db.py
+          count=$(docker run --rm -v adsum-ci-data:/data --entrypoint sh adsum:ci \
+                    -c 'ls -1 /data/backups/*.db 2>/dev/null | wc -l')
+          test "$count" -ge 1 || { echo "FAIL: no backup written"; exit 1; }
+          echo "backup written to the volume"
+
+      # Restarting must not lose the data, which is the entire point of the
+      # volume, and must not re-run the migrations destructively.
+      - name: Data survives a restart
+        run: |
+          set -eu
+          docker restart adsum-ci
+          for i in $(seq 1 45); do
+            curl -fsS --max-time 3 http://127.0.0.1:8000/healthz > /dev/null 2>&1 && break
+            [ "$i" = "45" ] && { echo "FAIL: did not come back"; docker logs adsum-ci; exit 1; }
+            sleep 1
+          done
+          docker exec adsum-ci test -f /data/adsum.db
+          docker exec adsum-ci test ! -f /data/.migration-failed
+          echo "came back with its data and no migration failure"
+
+      - name: The compose file is valid
+        run: |
+          set -eu
+          cp .env.example .env
+          sed -i "s|^SECRET_KEY=.*|SECRET_KEY=ci-secret-key-at-least-32-characters-long-xx|" .env
+          sed -i "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=ci-not-a-real-password-012345|" .env
+          docker compose config > /dev/null
+          echo "docker compose config parses"
+
+      - name: Logs on failure
+        if: failure()
+        run: docker logs adsum-ci || true
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker rm -f adsum-ci || true
+          docker volume rm adsum-ci-data || true
