@@ -1,4 +1,4 @@
-"""Seed script — create demo data for standalone testing."""
+"""Seed script — create demo data for local testing."""
 
 from __future__ import annotations
 

@@ -54,14 +54,6 @@ in case it is useful elsewhere.
 > now, read [docs/BRIGHTSPACE-ADMIN.md](docs/BRIGHTSPACE-ADMIN.md) and talk to
 > your Brightspace administrator early.
 >
-> **What you can rely on regardless:
-> [standalone mode](#running-adsum-without-an-lms-standalone-mode).** A course
-> can be created in Adsum and run with no LMS at all, with students claiming
-> their own name once on their own phone. It needs no LTI, no registration and
-> no administrator, so it is unaffected by any of the dates above. The honest
-> caveat is in that section: identity from an LMS is stronger than identity a
-> student claims for themselves.
->
 > The dates above are from D2L's deprecation plan, last updated 8 Oct 2026.
 > Its own other pages have at times given release numbers rather than dates;
 > where they disagree, the deprecation plan is the article D2L maintains for
@@ -90,7 +82,6 @@ in case it is useful elsewhere.
 - [Features](#features)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
-- [Running without an LMS](#running-adsum-without-an-lms-standalone-mode)
 - [Connecting D2L](#connecting-d2l-lti-11)
 - [Day-to-day use](#day-to-day-use)
 - [Getting attendance into the gradebook](#getting-attendance-into-the-gradebook)
@@ -171,18 +162,12 @@ room is useless by the time it arrives.
 Students are identified by LTI, not by typing a name. They launch the tool
 once from inside your D2L course; after that their phone is known.
 
-**No LMS?** A course can be created in Adsum and run in
-[standalone mode](#running-adsum-without-an-lms-standalone-mode), where a
-student claims their own name on first scan and that phone is theirs for the
-term. Same QR, same exports; weaker identity, and that section says exactly
-how much weaker.
-
 ## Features
 
 **Taking attendance**
 - Rotating QR check-in, signed and short-lived
-- Works with D2L, or with no LMS at all: per-course **standalone mode**, where
-  a student claims their name once and that phone is theirs for the term
+- Integrates with D2L over LTI 1.1: a student opens Adsum from inside your
+  D2L course, and D2L tells Adsum who they are
 - Live roster over server-sent events, no refreshing
 - Sessions end when *you* end them; nothing closes on a timer
 - Mark present, unmark, or excuse anyone, including on a session that already
@@ -211,7 +196,7 @@ how much weaker.
 |---|---|
 | Python | 3.11 or newer |
 | Database | SQLite. PostgreSQL is **not** supported today, see [Limitations](#limitations) |
-| D2L | A course you can add an External Learning Tool link to, on a Brightspace site where LTI 1.1 is still enabled. **Or nothing at all**, if you run courses in [standalone mode](#running-adsum-without-an-lms-standalone-mode) |
+| D2L | A course you can add an External Learning Tool link to, on a Brightspace site where LTI 1.1 is still enabled |
 | Network | A public HTTPS URL students' phones can reach |
 
 No container runtime, no message queue, no Redis. It is one Python process and
@@ -264,83 +249,6 @@ quietly end up in production.
 **For anything beyond a local try-out, read [docs/INSTALL.md](docs/INSTALL.md).**
 It covers hosting, HTTPS and reverse proxies, running as a service, backups,
 upgrades, and a troubleshooting table.
-
-## Running Adsum without an LMS (standalone mode)
-
-You do not need D2L, or any LMS, to use Adsum. A course can be created in the
-app (**Dashboard → New course**) and set to **standalone**, where students
-identify themselves by claiming their own name on their own phone, once.
-
-This is also what keeps the tool usable as D2L retires LTI 1.1. Read the dated
-notice at the top of this file: **no new LTI 1.1 integrations can be created in
-Brightspace after the February 2027 release, and 1.1 launches stop working in
-September 2027.** Standalone mode has no dependency on any of that.
-
-The mode is **per course**, and existing courses keep the D2L path. Running one
-standalone course changes nothing about a colleague's LMS-connected one.
-
-### How it works
-
-1. You import your class roster (any CSV with first name, last name and a
-   student ID column) on the course page.
-2. You start a session and project the QR code, exactly as before.
-3. The first time a student scans, they are asked **who they are** and pick
-   their own name from the roster. That binds their phone to that name and
-   checks them in, in one go.
-4. Every scan after that checks them in silently. They are never asked again.
-
-Everything else is unchanged: the rotating QR code, the typed six-character
-fallback, the per-course attendance policy, the geofence, the campus-IP
-restriction, manual marking, and the exports. The gradebook export becomes
-"download a CSV for whatever gradebook you use" instead of the Brightspace
-import file.
-
-### The trade, stated plainly
-
-**The LMS path gives stronger identity, and this one does not match it.**
-
-The rotating QR code proves *presence* either way: the code changes every
-twenty seconds, so a student has to be looking at the screen in the room. What
-standalone mode cannot prove on its own is *identity*. At the moment of that
-very first scan, nothing stops a student picking a classmate's name instead of
-their own. With D2L, that is impossible without being signed into D2L as that
-classmate. The LMS has already proved who they are, and Adsum simply believes
-it.
-
-What standalone mode does about it:
-
-- **One name, one phone.** A name can have only one active device binding, and
-  that is enforced by a unique index in the database, not by a check in the
-  code that two simultaneous scans could slip past. The second phone is
-  **refused**: never silently allowed, and never silently moved onto the new
-  device.
-- **The instructor is told.** Every refused claim is shown at the top of the
-  course page, with the student's name and the time, until you acknowledge it.
-  That is the main defence: the student whose name was taken is refused, comes
-  to you, and you can fix it while the class is still in the room.
-- **You can release a binding.** New phone, lost phone, or wrong name tapped:
-  release it on the course page and the name can be claimed again.
-  **Releasing deletes no attendance**: attendance belongs to the student, not
-  to the phone.
-- **The roster is not published.** The "who are you?" list shows names only.
-  Student ID numbers and usernames never appear on it, and only students on the
-  current roster are selectable, so somebody your last roster import marked as
-  dropped cannot be claimed.
-- **Claiming is only possible from inside a live check-in**, with a QR token
-  that passes the same verification a check-in does. Nobody can bind themselves
-  to a name from outside the room, and a screenshot of an old code is useless.
-- **Claim attempts are rate limited**, counting failures only and clearing on
-  success, so a student who taps the wrong thing is not locked out in front of
-  the class.
-
-**Single sign-on (Google or Microsoft) would remove claim-time impersonation
-entirely**, because the identity would again come from outside Adsum. It is a
-known future option. **It does not exist today: nothing in Adsum speaks
-OAuth or OIDC**, and this paragraph is a statement of direction, not of
-anything you can switch on.
-
-Choose standalone if you have no LMS, or if Brightspace is not available to
-you. Choose the D2L path if you have it.
 
 ## Connecting D2L (LTI 1.1)
 
@@ -819,15 +727,8 @@ Worth knowing before you adopt it.
   holding it can forge a launch as any user, so a shared departmental install
   really wants an organisation-level registration by IT rather than the secret
   passed around.
-- **A student's first check-in needs two scans** on the D2L path, because they
-  must sign in to D2L in between and the first token expires while they do.
-  Standalone mode has no such problem: there is no login round trip, so the
-  first scan claims the name and records the attendance in one request.
-- **Standalone identity is claimed, not proved.** A student's first scan could
-  claim a classmate's name. One phone per name is enforced in the database,
-  the clash is shown to the instructor, and a binding can be released. See
-  [standalone mode](#running-adsum-without-an-lms-standalone-mode) for the
-  full trade. Single sign-on would remove this and does not exist yet.
+- **A student's first check-in needs two scans**, because they must sign in to
+  D2L in between and the first token expires while they do.
 - **D2L truncates usernames and emails to 20 characters.** That truncated form
   is the real identity for both launches and gradebook imports. Don't "correct"
   it by hand.
@@ -835,11 +736,11 @@ Worth knowing before you adopt it.
   Adsum, not in D2L.
 - **Deleting a session changes everyone's percentage**, because it changes the
   denominator.
-- **A standalone course has no second copy of its data.** With D2L the
+- **Attendance that has not been exported exists in only one place.** The D2L
   gradebook holds the full per-date ledger, so a grade export is a complete
-  backup and `Restore from D2L` can rebuild the app from it. Standalone mode
-  has no such mirror: the server's own backups are the only copy, so download
-  the attendance CSV periodically.
+  backup and `Restore from D2L` can rebuild the app from it. Anything you have
+  never exported lives only in Adsum's own database and its backups, so take
+  those backups seriously and download the attendance CSV periodically.
 - **No mobile app.** It is a web page; students need a working camera and a
   browser.
 

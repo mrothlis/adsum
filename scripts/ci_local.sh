@@ -89,7 +89,7 @@ FAILED=""
 # so this one command covers every suite CI runs, wherever CI runs it.
 for script in test_scoring test_migrations test_accessibility \
               smoke_test test_isolation test_admin_separation test_admin_page \
-              test_security test_robustness test_roster_sync test_standalone \
+              test_security test_robustness test_roster_sync \
               test_grade_roundtrip; do
   printf '%-26s ' "$script"
   if OUT="$("$PY" "scripts/${script}.py" 2>&1)"; then

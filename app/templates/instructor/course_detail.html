@@ -15,57 +15,12 @@
     </div>
 </div>
 
-{# ── Refused claims ──
-   First thing on the page, because a wrong binding can only be fixed while
-   the class is still in the room. A student who sees "that name is already
-   in use" tells nobody; this is the only signal the instructor gets. #}
-{% if claim_conflicts %}
-<div class="alert alert-danger alert-permanent" role="alert">
-    <p style="margin:0 0 0.5rem;">
-        <span aria-hidden="true">🚩</span>
-        <strong>{{ claim_conflicts|length }} check-in{{ '' if claim_conflicts|length == 1 else 's' }}
-        {{ 'was' if claim_conflicts|length == 1 else 'were' }} refused because that
-        name is already claimed on another phone.</strong>
-    </p>
-    <ul style="margin:0 0 0.5rem 1.25rem;">
-        {% for c in claim_conflicts[:summary_names_shown] %}
-        <li>
-            <strong>{{ c.student.name if c.student else 'Unknown' }}</strong>,
-            {{ c.attempted_at | localtime('%b %-d, %H:%M') }}
-        </li>
-        {% endfor %}
-        {% if claim_conflicts|length > summary_names_shown %}
-        <li>and {{ claim_conflicts|length - summary_names_shown }} more</li>
-        {% endif %}
-    </ul>
-    <p style="margin:0 0 0.5rem;">
-        Usually this is a student who changed phone, or one who tapped the wrong
-        name on their first scan. It can also be somebody trying to check in as
-        a classmate. Ask the student in front of you, and if they are who they
-        say they are, <strong>Release</strong> their device below. They can then
-        claim their name again on their own phone. Nothing of theirs is deleted
-        either way.
-    </p>
-    <form method="post" action="/instructor/course/{{ course.id }}/claim-conflicts/review"
-          style="margin:0;">
-        <button type="submit" class="btn btn-sm btn-outline">I have looked at these</button>
-    </form>
-</div>
-{% endif %}
-
 {# ── Integration / export card ──
-   The same card for both modes, because the roster import and the last-import
-   record are identical either way. What changes is the gradebook: a D2L course
-   gets the two-column Brightspace import file and the steps for it; a
-   standalone course gets a plain CSV and no mention of D2L at all. Showing a
-   standalone instructor greyed-out D2L settings would be worse than hiding
-   them: it reads as "you are missing something". #}
+   The roster import and the last-import
+   record, plus the gradebook export: the two-column Brightspace import file
+   and the steps for it. #}
 <div class="card">
-    {% if course.is_standalone %}
-    <h2><span aria-hidden="true">📋</span> Roster and attendance export</h2>
-    {% else %}
     <h2><span aria-hidden="true">🔗</span> D2L Integration</h2>
-    {% endif %}
 
     {% if import_result and import_result.error is defined %}
     <div class="alert alert-danger" role="alert">
@@ -79,7 +34,7 @@
     <div class="alert alert-success alert-permanent" role="status">
         <p style="margin:0 0 0.5rem;">
             <span aria-hidden="true">✅</span>
-            <strong>Last {{ 'roster' if course.is_standalone else 'classlist' }} import:</strong> {{ roster_status.phrase }}
+            <strong>Last classlist import:</strong> {{ roster_status.phrase }}
             It listed {{ import_result.in_file }}
             student{{ '' if import_result.in_file == 1 else 's' }}.
         </p>
@@ -101,9 +56,9 @@
 
         {% if import_result.dropped %}
         <p style="margin:0.35rem 0;">
-            <strong>{{ import_result.dropped|length }} no longer on the {{ 'roster' if course.is_standalone else 'classlist' }}:</strong>
+            <strong>{{ import_result.dropped|length }} no longer on the classlist:</strong>
             {{ import_result.dropped[:summary_names_shown]|join(', ') }}{% if import_result.dropped|length > summary_names_shown %}, and {{ import_result.dropped|length - summary_names_shown }} more{% endif %}.
-            They are listed under <em>{{ 'Dropped from the roster' if course.is_standalone else 'Dropped from the D2L classlist' }}</em> below.
+            They are listed under <em>Dropped from the D2L classlist</em> below.
             Nothing of theirs was deleted, but they no longer count towards
             attendance and are left out of the gradebook export.
         </p>
@@ -148,17 +103,10 @@
         <span aria-hidden="true">⚠️</span>
         <strong>Your roster may be out of date.</strong>
         {{ roster_status.phrase }}
-        {% if course.is_standalone %}
-        Adsum has no student information system to ask, so it only finds out
-        who has added or dropped when you import a fresh roster. Export the
-        class list from wherever you keep it and import it below. Adsum will
-        then tell you exactly who was added and who has gone.
-        {% else %}
         Adsum cannot look at D2L to see who has added or dropped, so it only
         finds out when you import a fresh classlist. Download the classlist
         from D2L again and import it below. Adsum will then tell you exactly
         who was added and who has gone.
-        {% endif %}
     </div>
     {% elif not import_result or import_result.error is defined %}
     <p class="help-text"><span aria-hidden="true">🗓️</span> {{ roster_status.phrase }}</p>
@@ -176,8 +124,8 @@
     </div>
     {% endif %}
 
-    {% if sessions|length == 0 and not course.is_standalone %}
-    {# Standalone courses are not shown this: it is specifically about the D2L
+    {% if sessions|length == 0 %}
+    {# This is specifically about the D2L
        gradebook import being blocked, and there is no D2L here. #}
     {# Standing notice. It describes how the app is configured, not something
        that just happened, so it must never be removed on a timer. #}
@@ -188,29 +136,6 @@
     </div>
     {% endif %}
 
-    {% if course.is_standalone %}
-    <h3 style="font-size:1rem;margin-bottom:0.5rem;">Download attendance</h3>
-    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
-        <a href="/instructor/course/{{ course.id }}/export" class="btn btn-primary">
-            <span aria-hidden="true">📥</span> Download a CSV for your gradebook
-        </a>
-    </div>
-    <p class="help-text">
-        One row per student, one column per class meeting, plus the totals and
-        the attendance percentage after your forgiveness policy is applied.
-        Adsum does not know which gradebook you use, so it hands you a plain
-        spreadsheet rather than pretending to integrate with one: open it in
-        Excel, Sheets or Numbers, or paste the percentage column into whatever
-        system records your grades. The percentage is the same arithmetic the
-        roster below shows, so the two can never disagree.
-    </p>
-    <p class="help-text">
-        <strong>This course has no learning management system holding a second
-        copy.</strong> With D2L, the gradebook is the backup; here it is not,
-        so the server's own backups are the only copy. Download this file
-        periodically if the record matters.
-    </p>
-    {% else %}
     <h3 style="font-size:1rem;margin-bottom:0.5rem;">Send attendance to D2L</h3>
     <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
         <a href="/instructor/course/{{ course.id }}/export-d2l" class="btn btn-primary">
@@ -260,7 +185,6 @@
         from the count entirely. Anyone not on the D2L classlist is skipped as an
         unrecognized user, and that row is safe to ignore.
     </p>
-    {% endif %}
 
     <hr>
 
@@ -269,24 +193,10 @@
         <form method="post" action="/instructor/course/{{ course.id }}/import-roster"
               enctype="multipart/form-data" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
             <div class="form-group" style="margin-bottom:0;">
-                {% if course.is_standalone %}
-                <label for="roster_file">Import your class roster (CSV)</label>
-                {% else %}
                 <label for="roster_file">Import your D2L classlist (CSV)</label>
-                {% endif %}
                 <input type="file" id="roster_file" name="roster_file" accept=".csv" required
                        aria-describedby="roster_file_help" style="font-size:0.9rem;">
                 <small id="roster_file_help" class="help-text">
-                    {% if course.is_standalone %}
-                    A CSV with a first name, last name and student ID column
-                    (whatever your registrar or spreadsheet exports). This is the
-                    only way Adsum learns who is in the class, and in this mode
-                    it is also the list students pick their own name from, so it
-                    has to be right before the first check-in. Existing students
-                    are matched and updated, not duplicated, and anyone missing
-                    from the file is marked as having dropped (their attendance
-                    is kept). You will get a list of exactly what changed.
-                    {% else %}
                     <strong>In D2L: Grades → Export</strong>, set Key Field to
                     Username or Org Defined ID, tick <strong>Last Name</strong>
                     and <strong>First Name</strong> under User Details, then
@@ -298,12 +208,10 @@
                     duplicated, and anyone missing from the file is marked as having
                     dropped (their attendance is kept). You will get a list of exactly
                     what changed.
-                    {% endif %}
                 </small>
             </div>
-            <button type="submit" class="btn btn-primary"><span aria-hidden="true">📤</span> Import {{ 'roster' if course.is_standalone else 'classlist' }}</button>
+            <button type="submit" class="btn btn-primary"><span aria-hidden="true">📤</span> Import classlist</button>
         </form>
-        {% if not course.is_standalone %}
         <form method="post" action="/instructor/course/{{ course.id }}/restore-from-d2l"
               enctype="multipart/form-data" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
             <div class="form-group" style="margin-bottom:0;">
@@ -319,90 +227,20 @@
                 <span aria-hidden="true">♻️</span> Restore from D2L
             </button>
         </form>
-        {% endif %}
     </div>
 </div>
-
-{# ── Device bindings (standalone only) ──
-   Which phone is which student, and the Release button that fixes a wrong
-   one. Only meaningful without an LMS: a D2L course's identity comes from
-   Brightspace and there is nothing here to manage. #}
-{% if course.is_standalone %}
-<div class="card">
-    <h2><span aria-hidden="true">📱</span> Phones checked in as a student ({{ bindings|length }})</h2>
-    <p class="help-text" id="bindings-caption">
-        In this course a student's phone <em>is</em> their identity. The first
-        time they scan they pick their name from the roster, and that phone is
-        theirs for the term. Each name can be claimed on <strong>one phone
-        only</strong>, so a second phone trying the same name is refused and
-        shown to you above.
-    </p>
-    <p class="help-text">
-        <strong>Release</strong> frees the name so it can be claimed again:
-        for a new phone, a lost phone, or a student who tapped the wrong name.
-        It deletes <strong>no attendance</strong>: that belongs to the student,
-        not to the phone. The released phone is signed out immediately and will
-        be asked who it is on its next scan.
-    </p>
-    <div class="table-wrap">
-        <table class="table" aria-describedby="bindings-caption">
-            <thead>
-                <tr>
-                    <th scope="col">Student</th>
-                    <th scope="col">Claimed</th>
-                    <th scope="col"><span class="sr-only">Row actions</span></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for b in bindings %}
-                <tr>
-                    <td>{{ b.student.name if b.student else 'Unknown' }}</td>
-                    <td>{{ b.claimed_at | localtime('%b %-d, %Y at %H:%M') }}</td>
-                    <td style="white-space:nowrap;">
-                        <form method="post"
-                              action="/instructor/course/{{ course.id }}/binding/{{ b.id }}/release"
-                              onsubmit="return confirm('Release {{ b.student.name if b.student else 'this student' }}\'s phone?\n\nThey will pick their name again on their next scan. No attendance is deleted.');"
-                              style="margin:0;display:inline;">
-                            <button type="submit" class="btn btn-sm btn-outline"
-                                    aria-label="Release the phone bound to {{ b.student.name if b.student else 'this student' }}">
-                                Release
-                            </button>
-                        </form>
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="3">
-                        No phones have claimed a name yet. They will appear here as
-                        students scan for the first time.
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endif %}
 
 <div class="card">
     <h2>Enrolled Students ({{ student_stats|length }})</h2>
     <p class="help-text" id="roster-caption">
         <strong>Attended %</strong> is the plain share of classes the student was in the
         room for. It drives the bar and the status. <strong>Grade %</strong> is what goes
-        to {{ 'your gradebook' if course.is_standalone else 'the D2L gradebook' }}, after the first {{ allowed_absences }} unexcused
+        to the D2L gradebook, after the first {{ allowed_absences }} unexcused
         {{ 'absence' if allowed_absences == 1 else 'absences' }}
         {{ 'is' if allowed_absences == 1 else 'are' }} forgiven, so it is normally the
         higher of the two. Excused absences are dropped from the count entirely. Edit a
         name, ID or username in the table and press Save on that row.
     </p>
-    {% if course.is_standalone %}
-    <p class="help-text" id="roster-list-help">
-        <strong>On roster</strong> says whether this student came from a roster
-        file you imported. <strong>Not listed</strong> means they are in Adsum
-        without ever having appeared in one, which in this mode should not
-        happen. Check it before the end of term.
-    </p>
-    {% else %}
     <p class="help-text" id="d2l-list-help">
         <strong>D2L list</strong> says whether this student appeared in a classlist you
         imported. <strong>Not listed</strong> means Adsum created them from a D2L
@@ -413,10 +251,9 @@
         unrecognised user when you import grades, so it is worth resolving before the
         end of term.
     </p>
-    {% endif %}
 
     <button type="button" class="btn btn-outline btn-sm col-toggle"
-            data-toggle-columns aria-pressed="false">Show ID and {{ 'username' if course.is_standalone else 'D2L username' }}</button>
+            data-toggle-columns aria-pressed="false">Show ID and D2L username</button>
 
     <div class="table-wrap">
         <table class="table table-sticky" aria-describedby="roster-caption">
@@ -424,8 +261,8 @@
                 <tr>
                     <th scope="col">Name</th>
                     <th scope="col" class="col-optional">Student ID</th>
-                    <th scope="col" class="col-optional">{{ 'Username' if course.is_standalone else 'D2L Username' }}</th>
-                    <th scope="col">{{ 'On roster' if course.is_standalone else 'D2L list' }}</th>
+                    <th scope="col" class="col-optional">D2L Username</th>
+                    <th scope="col">D2L list</th>
                     <th scope="col">Attended</th>
                     <th scope="col">Absences
                         <span class="th-note">unexcused, allowance {{ allowed_absences }}</span>
@@ -434,7 +271,7 @@
                         <span class="th-note">nothing forgiven</span>
                     </th>
                     <th scope="col">Grade %
-                        <span class="th-note">{{ 'after forgiveness' if course.is_standalone else 'to D2L' }}, {{ allowed_absences }} forgiven</span>
+                        <span class="th-note">to D2L, {{ allowed_absences }} forgiven</span>
                     </th>
                     <th scope="col">Status</th>
                     <th scope="col"><span class="sr-only">Row actions</span></th>
@@ -530,14 +367,8 @@
                 {% else %}
                 <tr>
                     <td colspan="10">
-                        {% if course.is_standalone %}
-                        No students yet. Import your class roster above. In this
-                        mode the roster is also the list students pick their name
-                        from, so nobody can check in until it is loaded.
-                        {% else %}
                         No students yet. Import your D2L classlist above, or let students
                         enrol themselves the first time they scan.
-                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -554,17 +385,16 @@
 <div class="card">
     <details>
         <summary style="cursor:pointer;font-weight:600;font-size:1.1rem;">
-            {{ 'Dropped from the roster' if course.is_standalone else 'Dropped from the D2L classlist' }} ({{ dropped_stats|length }})
+            Dropped from the D2L classlist ({{ dropped_stats|length }})
         </summary>
         <p class="help-text" id="dropped-caption">
             These students were on this course's roster and were missing from the
-            {{ 'roster file' if course.is_standalone else 'classlist' }} you last imported, so Adsum marked them as having dropped on
+            classlist you last imported, so Adsum marked them as having dropped on
             the date shown. Nothing of theirs has been deleted: their attendance
             is below, so a dispute can still be settled. They are left out of the
-            gradebook export{% if not course.is_standalone %} (D2L would reject the row as an unrecognised user){% endif %},
-            out of every attendance count, and out of the mark-present list{% if course.is_standalone %}, and
-            their name is not offered to a phone claiming an identity{% endif %}. If one
-            of them reappears in a later {{ 'roster' if course.is_standalone else 'classlist' }} import they are put back
+            gradebook export (D2L would reject the row as an unrecognised user),
+            out of every attendance count, and out of the mark-present list. If one
+            of them reappears in a later classlist import they are put back
             automatically, with this record intact.
         </p>
         <div class="table-wrap">
@@ -573,7 +403,7 @@
                     <tr>
                         <th scope="col">Name</th>
                         <th scope="col">Student ID</th>
-                        <th scope="col">{{ 'Username' if course.is_standalone else 'D2L Username' }}</th>
+                        <th scope="col">D2L Username</th>
                         <th scope="col">Detected as dropped</th>
                         <th scope="col">Attended</th>
                         <th scope="col">Attended %</th>

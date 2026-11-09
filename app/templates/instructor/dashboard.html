@@ -59,11 +59,6 @@
         {% if course.course_code %}
         <span class="badge">{{ course.course_code }}</span>
         {% endif %}
-        {# Which identity path this course uses, because it changes what the
-           instructor has to do at the start of term. #}
-        {% if course.is_standalone %}
-        <span class="badge badge-muted" title="Students claim their name on first scan. No LMS.">Standalone</span>
-        {% endif %}
 
         {% if course.id in active_sessions %}
         <div class="session-active">
@@ -144,22 +139,15 @@
         </p>
         {% endif %}
 
-        <h4 style="margin:1.25rem 0 0.25rem;">2. Create one here, for standalone use</h4>
+        <h4 style="margin:1.25rem 0 0.25rem;">2. Create it here first</h4>
         <p>
-            Best if you have no LMS, or your institution's D2L is not an option.
-            Nothing to configure: you import a roster, and the first time a
-            student scans they pick their own name, which binds that phone to
-            them for the term. Each name can only be claimed on one phone, and
-            you are shown any clash.
-        </p>
-        <p>
-            Be aware of the trade: at that very first scan a student could pick
-            a classmate's name. That is why one phone per name is enforced, why
-            clashes are shown to you, and why you can release a binding. The
-            D2L path is the stronger one.
+            You can set a course up before the D2L link exists: import your
+            classlist, set your attendance policy and the geofence. Students
+            cannot check in until they can open Adsum from D2L, because D2L is
+            what tells Adsum who they are.
         </p>
         <p class="next-step">
-            <a href="/instructor/courses/new" class="btn btn-primary">Create a course here</a>
+            <a href="/instructor/courses/new" class="btn btn-primary">Create a course</a>
         </p>
     </div>
     {% endfor %}

@@ -172,14 +172,6 @@ jobs:
       - name: Roster reconciliation
         run: python scripts/test_roster_sync.py
 
-      # Standalone mode's claim-once identity. Every check here is a security
-      # invariant: a claim without a valid QR token, a second device claiming
-      # a bound student, a dropped student being claimable, or a forgeable
-      # device cookie are all impersonation, so this runs with the rest of
-      # the integration job rather than being left to a local run.
-      - name: Standalone claim-once identity
-        run: python scripts/test_standalone.py
-
       # Grade integrity, end to end. This suite exists because test_scoring.py
       # passed throughout while two defects were altering real grades: all four
       # grade-bearing queries counted sessions that had not ended yet, so an

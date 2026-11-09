@@ -151,23 +151,16 @@ def main():
     # A test must not write into data it did not create, for the same reason
     # it must not delete it.
     #
-    # The disposable course is created in D2L mode, NOT standalone. The
-    # first attempt used standalone on the reasoning that it needs no LTI
-    # launch to enrol anyone and that the flows are the same either way. The
-    # second half of that is false, and the test said so immediately: in
-    # standalone mode a student is identified by a claimed device binding,
-    # so the forged LTI student cookie this script uses below was rejected
-    # and three check-in assertions failed. D2L mode is also the right
-    # choice on the merits, because the LTI-identified check-in is the
-    # primary path and is what this script exists to exercise. The roster
-    # import works in either mode, which is what actually matters here.
+    # Students are identified by their D2L launch and by nothing else, which
+    # is why this script forges an LTI student cookie below rather than
+    # simulating any other kind of sign-in.
     global COURSE_ID
     created_course = None
     if not COURSE_ID:
         r = s.post(BASE + "/instructor/courses/new", cookies=icook,
                    allow_redirects=True,
                    data={"name": "Smoke Test (disposable)",
-                         "course_code": "ZZSMOKE", "mode": "d2l"})
+                         "course_code": "ZZSMOKE"})
         m = re.search(r"/instructor/course/(\d+)", r.url)
         assert m, "could not create the disposable smoke-test course"
         COURSE_ID = int(m.group(1))

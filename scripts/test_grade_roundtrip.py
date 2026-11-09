@@ -111,8 +111,7 @@ def main() -> int:
     def new_course(code: str, name: str) -> int:
         r = s.post(f"{BASE}/instructor/courses/new", timeout=30,
                    allow_redirects=True,
-                   data={"name": name, "course_code": code,
-                         "mode": "standalone"})
+                   data={"name": name, "course_code": code})
         m = re.search(r"/instructor/course/(\d+)", r.url)
         if not m:
             raise SystemExit(f"could not create fixture course {code}")

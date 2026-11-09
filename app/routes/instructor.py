@@ -45,14 +45,9 @@ from app.clock import utc_now
 from app.config import settings
 from app.database import get_db
 from app.models import (
-    COURSE_MODE_D2L,
-    COURSE_MODE_STANDALONE,
-    COURSE_MODES,
     AttendanceRecord,
-    ClaimConflict,
     Course,
     CourseEnrollment,
-    DeviceBinding,
     Institution,
     Instructor,
     Session,
@@ -239,11 +234,8 @@ def _roster_freshness(course: Course) -> dict:
     this says when THEY last imported a classlist -- never that D2L was
     checked.
 
-    A standalone course has no D2L to name, so the same sentences talk about
-    "a class roster". Saying "D2L classlist" to an instructor who has no LMS
-    would be the documentation lying about the product.
     """
-    what = "class roster" if course.is_standalone else "D2L classlist"
+    what = "D2L classlist"
     last = course.roster_last_imported_at
     if last is None:
         # Wording preserved exactly for the D2L case: this sentence is
@@ -251,9 +243,7 @@ def _roster_freshness(course: Course) -> dict:
         # nothing about behaviour should not break a test.
         return {
             "never": True, "stale": True, "last": None, "days": None,
-            "phrase": ("No class roster has been imported into Adsum for this "
-                       "course yet." if course.is_standalone else
-                       "No classlist has been imported into Adsum for this "
+            "phrase": ("No classlist has been imported into Adsum for this "
                        "course yet."),
         }
     now = utc_now()
@@ -670,8 +660,6 @@ async def new_course_form(request: Request, db: AsyncSession = Depends(get_db)):
     return templates.TemplateResponse(request, "instructor/new_course.html", {
         "user": user,
         "error": request.query_params.get("error", ""),
-        "mode_d2l": COURSE_MODE_D2L,
-        "mode_standalone": COURSE_MODE_STANDALONE,
     })
 
 
@@ -681,15 +669,8 @@ async def create_course(
     db: AsyncSession = Depends(get_db),
     name: Optional[str] = Form(None),
     course_code: Optional[str] = Form(None),
-    mode: Optional[str] = Form(None),
 ):
-    """Create a course owned by the instructor who created it.
-
-    The mode is chosen here and only here as a default; it is editable
-    afterwards in course settings. An unrecognised or missing value falls
-    back to the D2L path, which is the safe direction: the standalone path
-    has weaker identity, so it is never arrived at by accident.
-    """
+    """Create a course owned by the instructor who created it."""
     user = require_instructor(request)
     if not user:
         return RedirectResponse("/", status_code=302)
@@ -705,14 +686,9 @@ async def create_course(
             "/instructor/courses/new?error="
             + quote_plus("Give the course a name."), status_code=302)
 
-    chosen = (mode or "").strip().lower()
-    if chosen not in COURSE_MODES:
-        chosen = COURSE_MODE_D2L
-
     # One institution row per install (created by the bootstrap), and it
     # carries the shared D2L host and LTI credentials. Attaching the course
-    # to it keeps the launch instructions working for a course that is later
-    # switched to the D2L path.
+    # to it keeps the launch instructions working.
     institution_id = (await db.execute(
         select(Institution.id).order_by(Institution.id).limit(1))).scalar()
 
@@ -720,7 +696,6 @@ async def create_course(
         institution_id=institution_id,
         name=clean_name,
         course_code=(course_code or "").strip() or None,
-        mode=chosen,
         geofence_lat=settings.DEFAULT_GEOFENCE_LAT,
         geofence_lon=settings.DEFAULT_GEOFENCE_LON,
         geofence_radius_m=settings.DEFAULT_GEOFENCE_RADIUS_M,
@@ -732,8 +707,8 @@ async def create_course(
     db.add(CourseEnrollment(course_id=course.id,
                             instructor_id=instructor.id, role="instructor"))
     await db.commit()
-    log.info("course %s (%r, mode=%s) created by instructor %s",
-             course.id, clean_name, chosen, instructor.id)
+    log.info("course %s (%r) created by instructor %s",
+             course.id, clean_name, instructor.id)
     return RedirectResponse(f"/instructor/course/{course.id}", status_code=302)
 
 
@@ -906,119 +881,8 @@ async def course_detail(
         "summary_names_shown": ROSTER_SUMMARY_NAMES_SHOWN,
         "allowed_absences": _policy.allowed_unexcused,
         "policy": _policy,
-        # Standalone identity. Empty on a D2L course, where identity comes
-        # from the LMS and there is nothing to manage here.
-        "bindings": await _active_bindings(db, course),
-        "claim_conflicts": await _unreviewed_conflicts(db, course),
     })
 
-
-async def _active_bindings(db: AsyncSession, course: Course) -> list:
-    """Which phone is which student, for a standalone course."""
-    if not course.is_standalone:
-        return []
-    return list((await db.execute(
-        select(DeviceBinding)
-        .options(selectinload(DeviceBinding.student))
-        .where(DeviceBinding.course_id == course.id,
-               DeviceBinding.released_at.is_(None))
-        .order_by(DeviceBinding.claimed_at.desc())
-    )).scalars().all())
-
-
-async def _unreviewed_conflicts(db: AsyncSession, course: Course) -> list:
-    """Refused claims the instructor has not acknowledged yet.
-
-    Shown prominently rather than filed away: a wrong binding is only
-    fixable while the class is still in the room, and this is the only
-    signal that one happened. A student seeing "that name is already in
-    use" tells nobody.
-    """
-    if not course.is_standalone:
-        return []
-    return list((await db.execute(
-        select(ClaimConflict)
-        .options(selectinload(ClaimConflict.student))
-        .where(ClaimConflict.course_id == course.id,
-               ClaimConflict.reviewed_at.is_(None))
-        .order_by(ClaimConflict.attempted_at.desc())
-    )).scalars().all())
-
-
-@router.post("/course/{course_id}/binding/{binding_id}/release")
-async def release_binding(request: Request, course_id: int, binding_id: int,
-                          db: AsyncSession = Depends(get_db)):
-    """Free a student's name so it can be claimed on a different phone.
-
-    The fix for a new phone, a lost phone, and a student who tapped the
-    wrong name. It is deliberately NOT a delete: the row is marked released
-    so the history of who held the name survives, and -- the part that
-    matters -- NO ATTENDANCE IS TOUCHED. Attendance belongs to the student,
-    not to the device, and a release that quietly removed a class the
-    student really did attend would be worse than the wrong binding.
-
-    Releasing also invalidates the cookie on that phone immediately, because
-    the student path re-reads the binding row on every scan rather than
-    trusting the signature alone.
-    """
-    user = require_instructor(request)
-    if not user:
-        return RedirectResponse("/", status_code=302)
-    course = await owned_course(db, user, course_id)
-    if not course:
-        return HTMLResponse("Not found", status_code=404)
-
-    binding = await db.get(DeviceBinding, binding_id)
-    # Scoped to this course, so an id from another professor's course cannot
-    # be released by changing the number in the URL.
-    if not binding or binding.course_id != course_id:
-        log.warning("release refused: binding %s is not on course %s",
-                    binding_id, course_id)
-        return HTMLResponse("That device binding is not on this course.",
-                            status_code=404)
-
-    if binding.released_at is None:
-        binding.released_at = utc_now()
-        binding.released_by_instructor_id = user.get("instructor_id")
-        await db.commit()
-        log.warning("RELEASE: binding %s (student %s, course %s) released by "
-                    "instructor %s; attendance untouched",
-                    binding.id, binding.student_id, course_id,
-                    user.get("instructor_id"))
-    notice = ("Device released. That student can check in again on any phone "
-              "the next time they scan. Their attendance is unchanged.")
-    return RedirectResponse(
-        f"/instructor/course/{course_id}?notice={quote_plus(notice)}",
-        status_code=302)
-
-
-@router.post("/course/{course_id}/claim-conflicts/review")
-async def review_claim_conflicts(request: Request, course_id: int,
-                                 db: AsyncSession = Depends(get_db)):
-    """Acknowledge the refused claims shown on the course page.
-
-    Marked reviewed rather than deleted, so "this happened and I looked at
-    it" stays answerable weeks later when a student disputes a grade.
-    """
-    user = require_instructor(request)
-    if not user:
-        return RedirectResponse("/", status_code=302)
-    course = await owned_course(db, user, course_id)
-    if not course:
-        return HTMLResponse("Not found", status_code=404)
-    rows = (await db.execute(select(ClaimConflict).where(
-        ClaimConflict.course_id == course_id,
-        ClaimConflict.reviewed_at.is_(None)))).scalars().all()
-    now = utc_now()
-    for row in rows:
-        row.reviewed_at = now
-    await db.commit()
-    log.info("%s refused claim(s) on course %s marked reviewed by instructor %s",
-             len(rows), course_id, user.get("instructor_id"))
-    return RedirectResponse(f"/instructor/course/{course_id}", status_code=302)
-
-
-# ─── Start / Stop session ──────────────────────────────────
 
 @router.post("/course/{course_id}/start-session")
 async def start_session(request: Request, course_id: int, db: AsyncSession = Depends(get_db)):
@@ -1091,8 +955,8 @@ async def delete_course(request: Request, course_id: int,
 
     Deliberately irreversible and deliberately awkward. The confirmation is
     checked server-side, like delete-session, because a dialog is not
-    enforcement -- and for a standalone course this is the ONLY copy of the
-    attendance, so there is no D2L gradebook to restore it from.
+    enforcement. Exported attendance can be rebuilt from the D2L gradebook
+    with "Restore from D2L"; anything never exported cannot.
     """
     user = require_instructor(request)
     if not user:
@@ -1112,9 +976,8 @@ async def delete_course(request: Request, course_id: int,
     # useful audit line, "deleted a course with 11 sessions and 240 records"
     # is.
     # Order matters, and foreign keys are enforced (app/database.py sets the
-    # PRAGMA), so the child-most rows have to go first. Deleting sessions
-    # before claim_conflicts failed with "FOREIGN KEY constraint failed",
-    # because a refused-claim row points at the session it was refused on.
+    # PRAGMA), so the child-most rows have to go first: attendance records
+    # point at sessions, and sessions point at the course.
     session_ids = list((await db.execute(
         select(Session.id).where(Session.course_id == course_id)
     )).scalars().all())
@@ -1124,10 +987,6 @@ async def delete_course(request: Request, course_id: int,
             select(func.count(AttendanceRecord.id)).where(
                 AttendanceRecord.session_id.in_(session_ids))
         )).scalar() or 0
-    await db.execute(delete(ClaimConflict).where(
-        ClaimConflict.course_id == course_id))
-    await db.execute(delete(DeviceBinding).where(
-        DeviceBinding.course_id == course_id))
     if session_ids:
         await db.execute(delete(AttendanceRecord).where(
             AttendanceRecord.session_id.in_(session_ids)))
@@ -1139,10 +998,9 @@ async def delete_course(request: Request, course_id: int,
     # delete -- except the ones this course was the last to hold. Those rows
     # would otherwise survive forever, invisible, with nothing referring to
     # them: a growing pile of names and ID numbers belonging to a course that
-    # no longer exists. For a standalone course that is the only copy of
-    # those names, which makes it a privacy question rather than a tidiness
-    # one. Run AFTER the enrollments are gone so "no remaining enrollment"
-    # is true rather than predicted.
+    # no longer exists, which makes it a privacy question rather than a
+    # tidiness one. Run AFTER the enrollments are gone so "no remaining
+    # enrollment" is true rather than predicted.
     #
     # NOT EXISTS, never NOT IN. This table holds instructor enrollments as
     # well as student ones, and those have student_id NULL by design, so
@@ -1155,20 +1013,17 @@ async def delete_course(request: Request, course_id: int,
             CourseEnrollment.student_id == Student.id).exists())
     )).scalars().all()
     if orphans:
-        await db.execute(delete(DeviceBinding).where(
-            DeviceBinding.student_id.in_(orphans)))
         await db.execute(delete(Student).where(Student.id.in_(orphans)))
     # Snapshot what the log and notice need BEFORE the delete: after the
     # commit the ORM object is expired, and touching an attribute then
     # triggers a lazy reload of a row that no longer exists.
     name = course.name
-    mode = course.mode
     await db.delete(course)
     await db.commit()
 
-    log.warning("course %s (%r, mode %s) deleted by instructor %s; "
+    log.warning("course %s (%r) deleted by instructor %s; "
                 "%s session(s) and %s attendance record(s) removed",
-                course_id, name, mode, user.get("instructor_id"),
+                course_id, name, user.get("instructor_id"),
                 len(session_ids), record_count)
     notice = (f"Deleted {name}, with {len(session_ids)} "
               f"session{'' if len(session_ids) == 1 else 's'} and "
@@ -1572,8 +1427,6 @@ async def course_settings(request: Request, course_id: int, db: AsyncSession = D
         "default_allowed_absences": DEFAULT_ALLOWED_UNEXCUSED,
         "default_late_threshold": DEFAULT_LATE_THRESHOLD_MINUTES,
         "default_late_credit": DEFAULT_LATE_CREDIT_PERCENT,
-        "mode_d2l": COURSE_MODE_D2L,
-        "mode_standalone": COURSE_MODE_STANDALONE,
     })
 
 
@@ -1588,7 +1441,6 @@ async def save_course_settings(
     # -- which is how the D2L deep link was wiped by an unrelated test.
     name: Optional[str] = Form(None),
     course_code: Optional[str] = Form(None),
-    mode: Optional[str] = Form(None),
     d2l_org_unit_id: Optional[str] = Form(None),
     d2l_attendance_checkin_url: Optional[str] = Form(None),
     geofence_lat: Optional[float] = Form(None),
@@ -1618,18 +1470,6 @@ async def save_course_settings(
         course.name = name.strip()
     if course_code is not None:
         course.course_code = course_code.strip() or None
-    # The mode changes how students are identified, so an unrecognised value
-    # is ignored rather than guessed at, and a field that was not submitted
-    # leaves the course alone. Switching to standalone does NOT clear the D2L
-    # columns: the instructor may be trying it for one term, and silently
-    # destroying the org unit id and deep link would be the Form("") mistake
-    # in a new place.
-    if mode is not None and mode.strip().lower() in COURSE_MODES:
-        new_mode = mode.strip().lower()
-        if new_mode != course.mode:
-            log.info("course %s mode changed from %s to %s by instructor %s",
-                     course_id, course.mode, new_mode, user.get("instructor_id"))
-        course.mode = new_mode
     if d2l_org_unit_id is not None:
         course.d2l_org_unit_id = d2l_org_unit_id.strip() or None
     if d2l_attendance_checkin_url is not None:
@@ -1991,8 +1831,7 @@ async def import_d2l_roster(
             "stale_after_days": ROSTER_STALE_AFTER_DAYS,
             "summary_names_shown": ROSTER_SUMMARY_NAMES_SHOWN,
             "allowed_absences": _p.allowed_unexcused, "policy": _p,
-            "bindings": [], "claim_conflicts": [],
-        })
+            })
 
     # Cap the upload. Reading one byte past the limit is enough to detect it
     # without pulling an arbitrarily large file into memory.
@@ -2153,8 +1992,8 @@ async def import_d2l_roster(
     # The change log goes on screen, so it must not name D2L to an instructor
     # who has no D2L. The columns are still called d2l_* in the schema (they
     # are the same identity fields either way); only the wording changes.
-    username_label = "username" if course.is_standalone else "D2L username"
-    id_label = "student ID" if course.is_standalone else "D2L ID"
+    username_label = "D2L username"
+    id_label = "D2L ID"
     added: list[str] = []
     re_added: list[str] = []
     dropped: list[str] = []
