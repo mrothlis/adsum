@@ -1,5 +1,5 @@
 # Runtime dependencies, pinned to the versions verified in production.
-fastapi==0.162.0
+fastapi==0.162.4
 starlette==1.10.0
 uvicorn==0.54.0
 sqlalchemy[asyncio]==2.1.8
@@ -11,7 +11,7 @@ python-dotenv==1.2.4
 itsdangerous==2.2.0
 qrcode[pil]==8.2
 pillow==12.3.0
-sse-starlette==3.6.0
+sse-starlette==3.7.0
 
 # Schema migrations. Required at runtime: the app stamps a newly created
 # database at the current head so `alembic upgrade head` stays meaningful.
